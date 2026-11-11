@@ -28,6 +28,7 @@ export default function MessagesApp({
   characterId,
   initialContactId = null,
 }: Props) {
+  const [myCharacter, setMyCharacter] = useState<Character | null>(null);
   const [contacts, setContacts] = useState<Character[]>([]);
   const [selectedContact, setSelectedContact] = useState<Character | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -58,6 +59,20 @@ export default function MessagesApp({
         setError("Impossible d'ouvrir le téléphone de ce personnage.");
         setLoading(false);
         return;
+      }
+
+      const { data: characterData, error: characterError } = await supabase
+        .from('characters')
+        .select('id, name, first_name, avatar_url, character_type')
+        .eq('id', characterId)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (characterError) {
+        console.error(characterError);
+      } else {
+        setMyCharacter(characterData as Character | null);
       }
 
       setSessionReady(true);
@@ -101,7 +116,6 @@ export default function MessagesApp({
     };
   }, [characterId, sessionReady]);
 
-  // Ouvrir directement le contact choisi depuis Contacts
   useEffect(() => {
     if (!initialContactId || !sessionReady) return;
 
@@ -219,6 +233,26 @@ export default function MessagesApp({
     });
   }
 
+  function renderAvatar(character: Character | null, size = 'h-9 w-9') {
+    if (character?.avatar_url) {
+      return (
+        <img
+          src={character.avatar_url}
+          alt=""
+          className={`${size} shrink-0 rounded-full border border-gold-500/20 object-cover`}
+        />
+      );
+    }
+
+    return (
+      <div
+        className={`flex ${size} shrink-0 items-center justify-center rounded-full bg-ink-950 text-gold-300`}
+      >
+        ♙
+      </div>
+    );
+  }
+
   return (
     <section className="flex min-h-[600px] flex-1 flex-col px-4 py-6 text-bone-100 sm:px-6">
       <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
@@ -265,17 +299,7 @@ export default function MessagesApp({
                           : 'border border-transparent hover:bg-white/5'
                       }`}
                     >
-                      {contact.avatar_url ? (
-                        <img
-                          src={contact.avatar_url}
-                          alt=""
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-ink-950 text-lg text-gold-300">
-                          ♙
-                        </div>
-                      )}
+                      {renderAvatar(contact, 'h-10 w-10')}
 
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">
@@ -295,17 +319,7 @@ export default function MessagesApp({
               {selectedContact ? (
                 <>
                   <header className="flex items-center gap-3 border-b border-white/10 p-4">
-                    {selectedContact.avatar_url ? (
-                      <img
-                        src={selectedContact.avatar_url}
-                        alt=""
-                        className="h-10 w-10 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-ink-950 text-gold-300">
-                        ♙
-                      </div>
-                    )}
+                    {renderAvatar(selectedContact, 'h-10 w-10')}
 
                     <div>
                       <h2 className="font-medium">
@@ -317,7 +331,7 @@ export default function MessagesApp({
                     </div>
                   </header>
 
-                  <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+                  <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
                     {messages.length === 0 ? (
                       <p className="m-auto text-center text-sm text-bone-400">
                         Aucun message pour le moment.
@@ -329,21 +343,33 @@ export default function MessagesApp({
                         const isMine =
                           message.sender_character_id === characterId;
 
+                        const sender = isMine ? myCharacter : selectedContact;
+
                         return (
                           <div
                             key={message.id}
-                            className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                              isMine
-                                ? 'ml-auto bg-gold-500/15 text-bone-100'
-                                : 'mr-auto bg-ink-950 text-bone-100'
+                            className={`flex items-end gap-2 ${
+                              isMine ? 'justify-end' : 'justify-start'
                             }`}
                           >
-                            <p className="whitespace-pre-wrap break-words text-sm">
-                              {message.content}
-                            </p>
-                            <p className="mt-2 text-right text-[10px] text-bone-400">
-                              {formatDate(message.created_at)}
-                            </p>
+                            {!isMine && renderAvatar(sender, 'h-8 w-8')}
+
+                            <div
+                              className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                                isMine
+                                  ? 'bg-gold-500/15 text-bone-100'
+                                  : 'bg-ink-950 text-bone-100'
+                              }`}
+                            >
+                              <p className="whitespace-pre-wrap break-words text-sm">
+                                {message.content}
+                              </p>
+                              <p className="mt-2 text-right text-[10px] text-bone-400">
+                                {formatDate(message.created_at)}
+                              </p>
+                            </div>
+
+                            {isMine && renderAvatar(sender, 'h-8 w-8')}
                           </div>
                         );
                       })
