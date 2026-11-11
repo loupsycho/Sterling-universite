@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const DISCORD_CLIENT_ID = '1569669261331406858';
+
 function corsHeaders(_origin: string | null) {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -62,34 +63,61 @@ Deno.serve(async (req: Request) => {
     const discordUserResponse = await fetch('https://discord.com/api/v10/users/@me', {
       headers: { Authorization: `Bearer ${discordAccessToken}` },
     });
-    if (!discordUserResponse.ok) return jsonResponse({ error: 'Impossible de vérifier le compte Discord.' }, 401, origin);
+    if (!discordUserResponse.ok) {
+      return jsonResponse({ error: 'Impossible de vérifier le compte Discord.' }, 401, origin);
+    }
+
     const discordUser = await discordUserResponse.json();
     const discordUserId = String(discordUser.id);
+    const verifiedDiscordEmail =
+      discordUser.verified === true && typeof discordUser.email === 'string'
+        ? discordUser.email.trim().toLowerCase()
+        : null;
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    let matchingUser: any = null;
-    for (let page = 1; !matchingUser; page += 1) {
+    let matchingDiscordUser: any = null;
+    let matchingEmailUser: any = null;
+
+    // On conserve la priorité au lien Discord déjà enregistré.
+    // Si aucun lien n'existe, on retrouve le compte Sterling par son e-mail
+    // uniquement lorsque Discord confirme que cette adresse est vérifiée.
+    for (let page = 1; ; page += 1) {
       const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
       if (error) {
         console.error('Erreur pendant la recherche du compte Supabase.');
         return jsonResponse({ error: 'Impossible de vérifier le compte Sterling.' }, 500, origin);
       }
+
       const users = data.users || [];
-      matchingUser = users.find((user: any) =>
-        (user.identities || []).some((identity: any) =>
-          identity.provider === 'discord' &&
-          (identity.provider_id === discordUserId || identity.identity_data?.sub === discordUserId)
-        )
-      ) || null;
+      if (!matchingDiscordUser) {
+        matchingDiscordUser = users.find((user: any) =>
+          (user.identities || []).some((identity: any) =>
+            identity.provider === 'discord' &&
+            (identity.provider_id === discordUserId || identity.identity_data?.sub === discordUserId)
+          )
+        ) || null;
+      }
+
+      if (!matchingEmailUser && verifiedDiscordEmail) {
+        matchingEmailUser = users.find((user: any) =>
+          typeof user.email === 'string' &&
+          user.email.trim().toLowerCase() === verifiedDiscordEmail
+        ) || null;
+      }
+
+      if (matchingDiscordUser || (matchingEmailUser && verifiedDiscordEmail)) break;
       if (users.length < 1000) break;
     }
 
+    const matchingUser = matchingDiscordUser || matchingEmailUser;
     if (!matchingUser?.email) {
       return jsonResponse({
-        error: 'Aucun compte Sterling existant n’est associé à ce Discord. Connecte-toi une première fois depuis le site web avec le bouton Discord, puis réessaie dans l’Activity.',
+        error: verifiedDiscordEmail
+          ? 'Aucun compte Sterling ne correspond à l’adresse vérifiée de ce Discord. Aucun nouveau compte ni personnage n’a été créé.'
+          : 'Discord n’a pas fourni d’adresse e-mail vérifiée. Autorise l’accès à ton e-mail dans Discord puis réessaie.',
       }, 403, origin);
     }
 
