@@ -23,7 +23,8 @@ export default async function handler(req: any, res: any) {
   const signature = req.headers['x-signature-ed25519'];
   const timestamp = req.headers['x-signature-timestamp'];
 
-  if (!publicKeyHex || !/^[a-f0-9]{128}$/i.test(publicKeyHex)) {
+  // Discord public keys are 32 bytes (64 hexadecimal characters).
+  if (!publicKeyHex || !/^[a-f0-9]{64}$/i.test(publicKeyHex)) {
     console.error('DISCORD_PUBLIC_KEY is missing or invalid.');
     return res.status(500).json({ error: 'Interaction endpoint is not configured.' });
   }
