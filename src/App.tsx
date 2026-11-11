@@ -25,6 +25,10 @@ type Character = {
   age: number | null;
   character_type: string | null;
   course_position: string | null;
+  extracurricular_activity: string | null;
+  study_program: string | null;
+  university_responsibility: string | null;
+  staff_job: string | null;
   housing: string | null;
   avatar_url: string | null;
 };
@@ -35,9 +39,111 @@ type CharacterForm = {
   first_name: string;
   age: string;
   character_type: string;
-  course_position: string;
+  extracurricular_activity: string;
+  study_program: string;
+  university_responsibility: string;
+  staff_job: string;
   housing: string;
 };
+
+const activities = [
+  '⚽ Football',
+  '🏈 Rugby',
+  '🏀 Basketball',
+  '🏐 Volleyball',
+  '🎾 Tennis',
+  '🏸 Badminton',
+  '🏊 Natation',
+  '🎵 Musique',
+  '🤸 Gymnastique',
+  '🥊 Boxe',
+  '🏃 Athlétisme',
+  '💃 Danse',
+  '⛸️ Patinage',
+  '🎨 Art plastique & visuel',
+  'Aucune activité',
+];
+
+const studyPrograms = [
+  'DROIT & SCIENCES JURIDIQUES',
+  'MÉDECINE & SCIENCES DE LA SANTÉ',
+  'SCIENCES & RECHERCHE',
+  'INFORMATIQUE & TECHNOLOGIES',
+  'COMMERCE, ÉCONOMIE & GESTION',
+  'PSYCHOLOGIE & SCIENCES SOCIALES',
+  'ARTS, CULTURE & COMMUNICATION',
+  'LETTRES & SCIENCES HUMAINES',
+  'LANGUES ÉTRANGÈRES',
+  'SPORT & ACTIVITÉS PHYSIQUES',
+  'ASTROPHYSIQUE',
+];
+
+const houseResponsibilities = [
+  'Chef(fe) de Kappa Gold',
+  'Sous-chef(fe) de Kappa Gold',
+  'Chef(fe) d’Omega Crow',
+  'Sous-chef(fe) d’Omega Crow',
+  'Chef(fe) d’Alpha King',
+  'Sous-chef(fe) d’Alpha King',
+];
+
+const activityResponsibility = (activity: string) =>
+  `Chef(fe) de ${activity.replace(/^[^\p{L}]+/u, '').trim()}`;
+
+const staffJobs = [
+  {
+    category: 'Direction',
+    jobs: ['Directeur', 'Directeur adjoint'],
+  },
+  {
+    category: 'Corps enseignant',
+    jobs: [
+      'Professeur — Droit & sciences juridiques',
+      'Professeur — Médecine & sciences de la santé',
+      'Professeur — Sciences & recherche',
+      'Professeur — Informatique & technologies',
+      'Professeur — Commerce, économie & gestion',
+      'Professeur — Psychologie & sciences sociales',
+      'Professeur — Arts, culture & communication',
+      'Professeur — Lettres & sciences humaines',
+      'Professeur — Langues étrangères',
+      'Professeur — Sport & activités physiques',
+      'Professeur — Astrophysique',
+    ],
+  },
+  {
+    category: 'Services universitaires',
+    jobs: [
+      'Psychologue',
+      'Médecin universitaire',
+      'Infirmier(ère)',
+      'Surveillant(e)',
+      'Secrétaire / Accueil',
+      'Agent de sécurité',
+      'Responsable des résidences étudiantes',
+      'Conseiller d’orientation',
+      'Bibliothécaire',
+      'Agent d’entretien',
+      'Personnel de la cafétéria',
+    ],
+  },
+  {
+    category: 'Vie universitaire',
+    jobs: [
+      'Responsable des événements universitaires',
+      'Responsable de l’aile sportive',
+      'Responsable adjoint de l’aile sportive',
+    ],
+  },
+];
+
+const housingOptions = [
+  'Immeuble étudiant',
+  'Résidence du personnel',
+  'Omega Crow',
+  'Kappa Gold',
+  'Alpha King',
+];
 
 const emptyForm: CharacterForm = {
   player_id: '',
@@ -45,9 +151,18 @@ const emptyForm: CharacterForm = {
   first_name: '',
   age: '',
   character_type: 'Étudiant(e)',
-  course_position: '',
+  extracurricular_activity: '',
+  study_program: '',
+  university_responsibility: '',
+  staff_job: '',
   housing: '',
 };
+
+const selectClass =
+  'mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100';
+
+const inputClass =
+  'mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -73,7 +188,6 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [savingCharacter, setSavingCharacter] = useState(false);
 
-  // Connexion et récupération de la session Discord
   useEffect(() => {
     const {
       data: { subscription },
@@ -93,7 +207,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Vérification des droits administrateur et du statut du joueur
   useEffect(() => {
     let mounted = true;
 
@@ -148,7 +261,9 @@ export default function App() {
     };
   }, [session]);
 
-  // Chargement des joueurs et personnages dans l'administration
+  const characterSelect =
+    'id, player_id, name, first_name, age, character_type, course_position, extracurricular_activity, study_program, university_responsibility, staff_job, housing, avatar_url';
+
   useEffect(() => {
     if (!isAdmin || mode !== 'admin') return;
 
@@ -168,9 +283,7 @@ export default function App() {
 
         supabase
           .from('characters')
-          .select(
-            'id, player_id, name, first_name, age, character_type, course_position, housing, avatar_url'
-          )
+          .select(characterSelect)
           .order('name', { ascending: true }),
       ]);
 
@@ -201,7 +314,6 @@ export default function App() {
     };
   }, [isAdmin, mode]);
 
-  // Accepter ou refuser un compte joueur
   const handlePlayerStatus = async (
     playerId: string,
     status: RegistrationStatus
@@ -230,12 +342,33 @@ export default function App() {
     setUpdatingId(null);
   };
 
-  // Formulaire de personnage
   const handleFormChange = (
     field: keyof CharacterForm,
     value: string
   ) => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => {
+      const updated = { ...current, [field]: value };
+
+      if (field === 'character_type') {
+        updated.extracurricular_activity = '';
+        updated.study_program = '';
+        updated.university_responsibility = '';
+        updated.staff_job = '';
+      }
+
+      if (field === 'extracurricular_activity') {
+        const oldActivity = current.extracurricular_activity;
+        const oldResponsibility = oldActivity
+          ? activityResponsibility(oldActivity)
+          : '';
+
+        if (current.university_responsibility === oldResponsibility) {
+          updated.university_responsibility = '';
+        }
+      }
+
+      return updated;
+    });
   };
 
   const resetCharacterForm = () => {
@@ -254,7 +387,11 @@ export default function App() {
       first_name: character.first_name || '',
       age: character.age?.toString() || '',
       character_type: character.character_type || 'Étudiant(e)',
-      course_position: character.course_position || '',
+      extracurricular_activity: character.extracurricular_activity || '',
+      study_program: character.study_program || '',
+      university_responsibility:
+        character.university_responsibility || '',
+      staff_job: character.staff_job || '',
       housing: character.housing || '',
     });
 
@@ -264,7 +401,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Créer ou modifier un personnage
   const handleSaveCharacter = async () => {
     if (!form.player_id || !form.name.trim() || !form.first_name.trim()) {
       setCharacterError(
@@ -280,9 +416,45 @@ export default function App() {
       return;
     }
 
+    if (
+      form.character_type === 'Étudiant(e)' &&
+      !form.study_program
+    ) {
+      setCharacterError('Choisis un cours ou une filière.');
+      return;
+    }
+
+    if (
+      form.character_type === 'Membre du personnel' &&
+      !form.staff_job
+    ) {
+      setCharacterError('Choisis le métier ou la fonction du personnel.');
+      return;
+    }
+
     setSavingCharacter(true);
     setCharacterError('');
     setCharacterMessage('');
+
+    const student = form.character_type === 'Étudiant(e)';
+
+    const extracurricular =
+      student && form.extracurricular_activity &&
+      form.extracurricular_activity !== 'Aucune activité'
+        ? form.extracurricular_activity
+        : null;
+
+    const responsibility =
+      student &&
+      form.university_responsibility &&
+      form.university_responsibility !== 'Aucune responsabilité'
+        ? form.university_responsibility
+        : null;
+
+    const studyProgram = student ? form.study_program || null : null;
+    const staffJob = student ? null : form.staff_job || null;
+
+    let saveError = null;
 
     if (editingId) {
       const { error } = await supabase.rpc('admin_update_character', {
@@ -291,16 +463,15 @@ export default function App() {
         p_first_name: form.first_name.trim(),
         p_age: age,
         p_character_type: form.character_type,
-        p_course_position: form.course_position.trim() || null,
-        p_housing: form.housing.trim() || null,
+        p_course_position: null,
+        p_housing: form.housing || null,
+        p_extracurricular_activity: extracurricular,
+        p_study_program: studyProgram,
+        p_university_responsibility: responsibility,
+        p_staff_job: staffJob,
       });
 
-      if (error) {
-        console.error(error);
-        setCharacterError('Impossible de modifier ce personnage.');
-        setSavingCharacter(false);
-        return;
-      }
+      saveError = error;
     } else {
       const { error } = await supabase.from('characters').insert({
         player_id: form.player_id,
@@ -308,23 +479,37 @@ export default function App() {
         first_name: form.first_name.trim(),
         age,
         character_type: form.character_type,
-        course_position: form.course_position.trim() || null,
-        housing: form.housing.trim() || null,
+        course_position: null,
+        extracurricular_activity: extracurricular,
+        study_program: studyProgram,
+        university_responsibility: responsibility,
+        staff_job: staffJob,
+        housing: form.housing || null,
       });
 
-      if (error) {
-        console.error(error);
-        setCharacterError('Impossible de créer ce personnage.');
-        setSavingCharacter(false);
-        return;
+      saveError = error;
+    }
+
+    if (saveError) {
+      console.error(saveError);
+
+      if (saveError.code === '23505') {
+        setCharacterError(
+          'Cette responsabilité est déjà attribuée à un autre personnage.'
+        );
+      } else {
+        setCharacterError(
+          'Impossible d’enregistrer ce personnage. Vérifie les informations et réessaie.'
+        );
       }
+
+      setSavingCharacter(false);
+      return;
     }
 
     const { data, error: reloadError } = await supabase
       .from('characters')
-      .select(
-        'id, player_id, name, first_name, age, character_type, course_position, housing, avatar_url'
-      )
+      .select(characterSelect)
       .order('name', { ascending: true });
 
     if (reloadError) {
@@ -345,7 +530,6 @@ export default function App() {
     setSavingCharacter(false);
   };
 
-  // Supprimer un personnage
   const handleDeleteCharacter = async (characterId: string) => {
     if (!window.confirm('Veux-tu vraiment supprimer ce personnage ?')) return;
 
@@ -379,7 +563,6 @@ export default function App() {
     setMode('choice');
   };
 
-  // Informations affichées dans l'interface
   const metadata = session?.user.user_metadata ?? {};
 
   const displayName =
@@ -406,6 +589,27 @@ export default function App() {
     const player = players.find((item) => item.id === playerId);
     return player?.discord_username || `Membre ${playerId.slice(0, 8)}`;
   };
+
+  const occupiedResponsibilities = characters
+    .filter((character) => character.id !== editingId)
+    .map((character) => character.university_responsibility)
+    .filter((value): value is string => Boolean(value));
+
+  const currentActivityResponsibility = form.extracurricular_activity &&
+    form.extracurricular_activity !== 'Aucune activité'
+    ? activityResponsibility(form.extracurricular_activity)
+    : '';
+
+  const responsibilityOptions = [
+    ...houseResponsibilities,
+    ...(currentActivityResponsibility
+      ? [currentActivityResponsibility]
+      : []),
+  ].filter(
+    (responsibility) =>
+      !occupiedResponsibilities.includes(responsibility) ||
+      responsibility === form.university_responsibility
+  );
 
   return (
     <AppShell>
@@ -659,7 +863,7 @@ export default function App() {
                     onChange={(event) =>
                       handleFormChange('player_id', event.target.value)
                     }
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100 disabled:opacity-50"
+                    className={selectClass + ' disabled:opacity-50'}
                   >
                     <option value="">Choisir un joueur</option>
                     {players
@@ -682,7 +886,7 @@ export default function App() {
                     onChange={(event) =>
                       handleFormChange('character_type', event.target.value)
                     }
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    className={selectClass}
                   >
                     <option value="Étudiant(e)">Étudiant(e)</option>
                     <option value="Membre du personnel">
@@ -699,7 +903,7 @@ export default function App() {
                       handleFormChange('name', event.target.value)
                     }
                     placeholder="Nom de famille"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    className={inputClass}
                   />
                 </label>
 
@@ -711,7 +915,7 @@ export default function App() {
                       handleFormChange('first_name', event.target.value)
                     }
                     placeholder="Prénom"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    className={inputClass}
                   />
                 </label>
 
@@ -726,21 +930,127 @@ export default function App() {
                       handleFormChange('age', event.target.value)
                     }
                     placeholder="Âge"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    className={inputClass}
                   />
                 </label>
 
-                <label className="text-sm text-bone-300">
-                  Poste ou cursus
-                  <input
-                    value={form.course_position}
-                    onChange={(event) =>
-                      handleFormChange('course_position', event.target.value)
-                    }
-                    placeholder="Ex. Psychologue ou Droit"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
-                  />
-                </label>
+                {form.character_type === 'Étudiant(e)' ? (
+                  <>
+                    <label className="text-sm text-bone-300">
+                      Activité extrascolaire
+                      <select
+                        value={form.extracurricular_activity}
+                        onChange={(event) =>
+                          handleFormChange(
+                            'extracurricular_activity',
+                            event.target.value
+                          )
+                        }
+                        className={selectClass}
+                      >
+                        <option value="">Choisir une activité</option>
+                        {activities.map((activity) => (
+                          <option key={activity} value={activity}>
+                            {activity}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="text-sm text-bone-300">
+                      Cours / Filière
+                      <select
+                        value={form.study_program}
+                        onChange={(event) =>
+                          handleFormChange('study_program', event.target.value)
+                        }
+                        className={selectClass}
+                      >
+                        <option value="">Choisir un cours / une filière</option>
+                        {studyPrograms.map((program) => (
+                          <option key={program} value={program}>
+                            {program}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="text-sm text-bone-300 sm:col-span-2">
+                      Responsabilité universitaire
+                      <select
+                        value={form.university_responsibility}
+                        onChange={(event) =>
+                          handleFormChange(
+                            'university_responsibility',
+                            event.target.value
+                          )
+                        }
+                        className={selectClass}
+                      >
+                        <option value="">Aucune responsabilité</option>
+
+                        <optgroup label="Maisons universitaires">
+                          {houseResponsibilities
+                            .filter(
+                              (responsibility) =>
+                                !occupiedResponsibilities.includes(
+                                  responsibility
+                                ) ||
+                                responsibility ===
+                                  form.university_responsibility
+                            )
+                            .map((responsibility) => (
+                              <option
+                                key={responsibility}
+                                value={responsibility}
+                              >
+                                {responsibility}
+                              </option>
+                            ))}
+                        </optgroup>
+
+                        {currentActivityResponsibility && (
+                          <optgroup label="Activité extrascolaire">
+                            {responsibilityOptions
+                              .filter((responsibility) =>
+                                responsibility.startsWith('Chef(fe) de ')
+                              )
+                              .map((responsibility) => (
+                                <option
+                                  key={responsibility}
+                                  value={responsibility}
+                                >
+                                  {responsibility}
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  <label className="text-sm text-bone-300 sm:col-span-2">
+                    Métier / Fonction
+                    <select
+                      value={form.staff_job}
+                      onChange={(event) =>
+                        handleFormChange('staff_job', event.target.value)
+                      }
+                      className={selectClass}
+                    >
+                      <option value="">Choisir un métier / une fonction</option>
+                      {staffJobs.map((group) => (
+                        <optgroup key={group.category} label={group.category}>
+                          {group.jobs.map((job) => (
+                            <option key={job} value={job}>
+                              {job}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
                 <label className="text-sm text-bone-300 sm:col-span-2">
                   Lieu de vie
@@ -749,14 +1059,14 @@ export default function App() {
                     onChange={(event) =>
                       handleFormChange('housing', event.target.value)
                     }
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    className={selectClass}
                   >
                     <option value="">Choisir un lieu de vie</option>
-                    <option value="Immeuble étudiant">Immeuble étudiant</option>
-                    <option value="Résidence du personnel">Résidence du personnel</option>
-                    <option value="Omega Crow">Omega Crow</option>
-                    <option value="Kappa Gold">Kappa Gold</option>
-                    <option value="Alpha King">Alpha King</option>
+                    {housingOptions.map((housing) => (
+                      <option key={housing} value={housing}>
+                        {housing}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
@@ -834,13 +1144,38 @@ export default function App() {
                           {character.age
                             ? `${character.age} ans`
                             : 'Âge non renseigné'}
-                          {character.course_position
-                            ? ` · ${character.course_position}`
-                            : ''}
-                          {character.housing
-                            ? ` · ${character.housing}`
-                            : ''}
                         </p>
+
+                        {character.extracurricular_activity && (
+                          <p className="mt-1 text-xs text-bone-400">
+                            Activité : {character.extracurricular_activity}
+                          </p>
+                        )}
+
+                        {character.study_program && (
+                          <p className="mt-1 text-xs text-bone-400">
+                            Filière : {character.study_program}
+                          </p>
+                        )}
+
+                        {character.university_responsibility && (
+                          <p className="mt-1 text-xs text-gold-300">
+                            Responsabilité :{' '}
+                            {character.university_responsibility}
+                          </p>
+                        )}
+
+                        {character.staff_job && (
+                          <p className="mt-1 text-xs text-bone-400">
+                            Fonction : {character.staff_job}
+                          </p>
+                        )}
+
+                        {character.housing && (
+                          <p className="mt-1 text-xs text-bone-400">
+                            Logement : {character.housing}
+                          </p>
+                        )}
                       </div>
 
                       <div className="flex gap-2">
@@ -852,9 +1187,7 @@ export default function App() {
                         </button>
 
                         <button
-                          onClick={() =>
-                            handleDeleteCharacter(character.id)
-                          }
+                          onClick={() => handleDeleteCharacter(character.id)}
                           className="rounded-lg border border-red-500/40 px-3 py-2 text-xs text-red-300"
                         >
                           Supprimer
