@@ -21,14 +21,58 @@ type Props = {
 
 type PhoneApp = 'home' | 'contacts' | 'messages';
 
+type SavedSession = {
+  characterId: string | null;
+  activeApp: PhoneApp;
+  messageContactId: string | null;
+};
+
+function getSavedSession(playerId: string): SavedSession {
+  const emptySession: SavedSession = {
+    characterId: null,
+    activeApp: 'home',
+    messageContactId: null,
+  };
+
+  try {
+    const saved = localStorage.getItem(`sterling_player_session_${playerId}`);
+
+    if (!saved) return emptySession;
+
+    const parsed = JSON.parse(saved);
+
+    return {
+      characterId: parsed.characterId || null,
+      activeApp:
+        parsed.activeApp === 'contacts' ||
+        parsed.activeApp === 'messages'
+          ? parsed.activeApp
+          : 'home',
+      messageContactId: parsed.messageContactId || null,
+    };
+  } catch {
+    return emptySession;
+  }
+}
+
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [selectedCharacter, setSelectedCharacter] =
-    useState<Character | null>(null);
-  const [activeApp, setActiveApp] = useState<PhoneApp>('home');
-  const [messageContactId, setMessageContactId] = useState<string | null>(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(
+    () => getSavedSession(playerId).characterId
+  );
+  const [activeApp, setActiveApp] = useState<PhoneApp>(
+    () => getSavedSession(playerId).activeApp
+  );
+  const [messageContactId, setMessageContactId] = useState<string | null>(
+    () => getSavedSession(playerId).messageContactId
+  );
+  const [sessionRestored, setSessionRestored] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const selectedCharacter =
+    characters.find((character) => character.id === selectedCharacterId) ||
+    null;
 
   useEffect(() => {
     let mounted = true;
@@ -51,10 +95,29 @@ export default function PlayerSpace({ playerId }: Props) {
         console.error(error);
         setError('Impossible de charger tes personnages.');
       } else {
-        setCharacters((data || []) as Character[]);
+        const loadedCharacters = (data || []) as Character[];
+        setCharacters(loadedCharacters);
+
+        const saved = getSavedSession(playerId);
+
+        if (
+          saved.characterId &&
+          loadedCharacters.some(
+            (character) => character.id === saved.characterId
+          )
+        ) {
+          setSelectedCharacterId(saved.characterId);
+          setActiveApp(saved.activeApp);
+          setMessageContactId(saved.messageContactId);
+        } else {
+          setSelectedCharacterId(null);
+          setActiveApp('home');
+          setMessageContactId(null);
+        }
       }
 
       setLoading(false);
+      setSessionRestored(true);
     }
 
     loadCharacters();
@@ -64,12 +127,39 @@ export default function PlayerSpace({ playerId }: Props) {
     };
   }, [playerId]);
 
+  useEffect(() => {
+    if (!sessionRestored) return;
+
+    const session: SavedSession = {
+      characterId: selectedCharacterId,
+      activeApp,
+      messageContactId,
+    };
+
+    localStorage.setItem(
+      `sterling_player_session_${playerId}`,
+      JSON.stringify(session)
+    );
+  }, [
+    playerId,
+    selectedCharacterId,
+    activeApp,
+    messageContactId,
+    sessionRestored,
+  ]);
+
   function openMessages(contactId?: string) {
     setMessageContactId(contactId || null);
     setActiveApp('messages');
   }
 
   function backToPhone() {
+    setActiveApp('home');
+    setMessageContactId(null);
+  }
+
+  function backToCharacters() {
+    setSelectedCharacterId(null);
     setActiveApp('home');
     setMessageContactId(null);
   }
@@ -143,8 +233,9 @@ export default function PlayerSpace({ playerId }: Props) {
                 key={character.id}
                 type="button"
                 onClick={() => {
-                  setSelectedCharacter(character);
+                  setSelectedCharacterId(character.id);
                   setActiveApp('home');
+                  setMessageContactId(null);
                 }}
                 className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/70 text-left transition hover:border-gold-400/60"
               >
@@ -201,12 +292,14 @@ export default function PlayerSpace({ playerId }: Props) {
             if (activeApp !== 'home') {
               backToPhone();
             } else {
-              setSelectedCharacter(null);
+              backToCharacters();
             }
           }}
-          className="mb-6 text-sm text-gold-300 transition hover:text-gold-200"
+          className="mb-6 rounded-lg border border-gold-500/30 px-4 py-2 text-sm text-gold-300 transition hover:bg-gold-500/10 hover:text-gold-200"
         >
-          ← {activeApp === 'home' ? 'Retour à mes personnages' : 'Retour au téléphone'}
+          ← {activeApp === 'home'
+            ? 'Retour à mes personnages'
+            : 'Retour au téléphone'}
         </button>
 
         {activeApp === 'home' && (
