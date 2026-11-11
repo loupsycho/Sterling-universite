@@ -206,7 +206,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
     if (uploadError) {
       console.error(uploadError);
-      setAvatarError("La photo n'a pas pu être envoyée. Réessaie.");
+      setAvatarError(`Erreur d'envoi : ${uploadError.message}`);
       setAvatarLoading(false);
       return;
     }
