@@ -77,6 +77,7 @@ function getAvatarStoragePath(url: string | null) {
 }
 
 const CROP_SIZE = 300;
+const CROP_STEP = 20;
 
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -109,12 +110,6 @@ export default function PlayerSpace({ playerId }: Props) {
   });
 
   const cropImageRef = useRef<HTMLImageElement>(null);
-  const dragRef = useRef<{
-    startX: number;
-    startY: number;
-    imageX: number;
-    imageY: number;
-  } | null>(null);
 
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ||
@@ -138,6 +133,33 @@ export default function PlayerSpace({ playerId }: Props) {
     };
   }
 
+  function moveCrop(direction: 'up' | 'down' | 'left' | 'right') {
+    setCropPosition((current) => {
+      let x = current.x;
+      let y = current.y;
+
+      if (direction === 'up') y += CROP_STEP;
+      if (direction === 'down') y -= CROP_STEP;
+      if (direction === 'left') x += CROP_STEP;
+      if (direction === 'right') x -= CROP_STEP;
+
+      return clampPosition(x, y);
+    });
+  }
+
+  function handleZoomChange(value: number) {
+    const newZoom = Math.min(3, Math.max(1, value));
+
+    const newWidth = cropImageSize.width * baseScale * newZoom;
+    const newHeight = cropImageSize.height * baseScale * newZoom;
+
+    setCropZoom(newZoom);
+    setCropPosition({
+      x: (CROP_SIZE - newWidth) / 2,
+      y: (CROP_SIZE - newHeight) / 2,
+    });
+  }
+
   function closeCrop() {
     if (cropUrl) URL.revokeObjectURL(cropUrl);
 
@@ -146,7 +168,6 @@ export default function PlayerSpace({ playerId }: Props) {
     setCropZoom(1);
     setCropImageSize({ width: 0, height: 0 });
     setCropPosition({ x: 0, y: 0 });
-    dragRef.current = null;
   }
 
   function handleCropImageLoad() {
@@ -162,51 +183,6 @@ export default function PlayerSpace({ playerId }: Props) {
     setCropPosition({
       x: (CROP_SIZE - width * scale) / 2,
       y: (CROP_SIZE - height * scale) / 2,
-    });
-  }
-
-  function handleCropPointerDown(
-    event: React.PointerEvent<HTMLDivElement>
-  ) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    dragRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      imageX: cropPosition.x,
-      imageY: cropPosition.y,
-    };
-  }
-
-  function handleCropPointerMove(
-    event: React.PointerEvent<HTMLDivElement>
-  ) {
-    if (!dragRef.current) return;
-
-    const deltaX = event.clientX - dragRef.current.startX;
-    const deltaY = event.clientY - dragRef.current.startY;
-
-    setCropPosition(
-      clampPosition(
-        dragRef.current.imageX + deltaX,
-        dragRef.current.imageY + deltaY
-      )
-    );
-  }
-
-  function handleCropPointerUp() {
-    dragRef.current = null;
-  }
-
-  function handleZoomChange(value: number) {
-    setCropZoom(value);
-
-    const newWidth = cropImageSize.width * baseScale * value;
-    const newHeight = cropImageSize.height * baseScale * value;
-
-    setCropPosition({
-      x: (CROP_SIZE - newWidth) / 2,
-      y: (CROP_SIZE - newHeight) / 2,
     });
   }
 
@@ -445,6 +421,7 @@ export default function PlayerSpace({ playerId }: Props) {
     setCropUrl(url);
     setCropZoom(1);
     setCropImageSize({ width: 0, height: 0 });
+    setCropPosition({ x: 0, y: 0 });
   }
 
   async function handleAvatarDelete() {
@@ -804,7 +781,7 @@ export default function PlayerSpace({ playerId }: Props) {
               </h2>
 
               <p className="mt-2 text-sm text-bone-400">
-                Déplace la photo pour choisir la partie à conserver.
+                Utilise les flèches pour déplacer la photo et les boutons pour zoomer.
               </p>
             </div>
 
@@ -814,14 +791,8 @@ export default function PlayerSpace({ playerId }: Props) {
                 style={{
                   width: CROP_SIZE,
                   height: CROP_SIZE,
-                  maxWidth: '100%',
-                  touchAction: 'none',
-                  cursor: 'grab',
+                  flexShrink: 0,
                 }}
-                onPointerDown={handleCropPointerDown}
-                onPointerMove={handleCropPointerMove}
-                onPointerUp={handleCropPointerUp}
-                onPointerCancel={handleCropPointerUp}
               >
                 <img
                   ref={cropImageRef}
@@ -845,27 +816,114 @@ export default function PlayerSpace({ playerId }: Props) {
               </div>
             </div>
 
+            <div className="mt-6 flex flex-col items-center gap-4">
+              <p className="text-sm font-medium text-bone-300">
+                Position de la photo
+              </p>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div />
+                <button
+                  type="button"
+                  onClick={() => moveCrop('up')}
+                  disabled={!cropImageSize.width || cropPosition.y >= 0}
+                  aria-label="Déplacer vers le haut"
+                  className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                >
+                  ↑
+                </button>
+                <div />
+
+                <button
+                  type="button"
+                  onClick={() => moveCrop('left')}
+                  disabled={!cropImageSize.width || cropPosition.x >= 0}
+                  aria-label="Déplacer vers la gauche"
+                  className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                >
+                  ←
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCropPosition({
+                      x: (CROP_SIZE - renderedWidth) / 2,
+                      y: (CROP_SIZE - renderedHeight) / 2,
+                    });
+                  }}
+                  className="h-12 w-14 rounded-xl border border-white/20 bg-ink-950 text-xs text-bone-300 hover:bg-white/10"
+                >
+                  Centrer
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => moveCrop('right')}
+                  disabled={!cropImageSize.width || cropPosition.x <= CROP_SIZE - renderedWidth}
+                  aria-label="Déplacer vers la droite"
+                  className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                >
+                  →
+                </button>
+
+                <div />
+                <button
+                  type="button"
+                  onClick={() => moveCrop('down')}
+                  disabled={!cropImageSize.height || cropPosition.y <= CROP_SIZE - renderedHeight}
+                  aria-label="Déplacer vers le bas"
+                  className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                >
+                  ↓
+                </button>
+                <div />
+              </div>
+            </div>
+
             <div className="mt-6">
               <div className="flex items-center justify-between text-sm text-bone-300">
-                <label htmlFor="crop-zoom">Zoom</label>
+                <span>Zoom</span>
                 <span>{Math.round(cropZoom * 100)} %</span>
               </div>
 
-              <input
-                id="crop-zoom"
-                type="range"
-                min="1"
-                max="3"
-                step="0.05"
-                value={cropZoom}
-                onChange={(event) =>
-                  handleZoomChange(Number(event.target.value))
-                }
-                className="mt-3 w-full accent-yellow-500"
-              />
+              <div className="mt-3 flex items-center justify-center gap-5">
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(cropZoom - 0.1)}
+                  disabled={!cropImageSize.width || cropZoom <= 1}
+                  className="h-11 w-11 rounded-full border border-gold-500/40 bg-ink-950 text-2xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                  aria-label="Dézoomer"
+                >
+                  −
+                </button>
 
-              <p className="mt-2 text-center text-xs text-bone-500">
-                Fais glisser l'image et utilise le curseur pour zoomer.
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.05"
+                  value={cropZoom}
+                  onChange={(event) =>
+                    handleZoomChange(Number(event.target.value))
+                  }
+                  disabled={!cropImageSize.width}
+                  className="w-full accent-yellow-500"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(cropZoom + 0.1)}
+                  disabled={!cropImageSize.width || cropZoom >= 3}
+                  className="h-11 w-11 rounded-full border border-gold-500/40 bg-ink-950 text-2xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
+                  aria-label="Zoomer"
+                >
+                  +
+                </button>
+              </div>
+
+              <p className="mt-3 text-center text-xs text-bone-500">
+                Les flèches déplacent la photo par petits pas.
               </p>
             </div>
 
