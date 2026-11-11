@@ -40,7 +40,7 @@ export default function HomePage() {
 
         // Appel direct à la fonction : seule la clé publique est envoyée.
         // Cela évite qu'un ancien jeton de session Supabase soit ajouté automatiquement.
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discord-activity-auth`;
+        const functionUrl = '/supabase/functions/v1/discord-activity-auth';
         let response: Response;
 
         try {
