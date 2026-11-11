@@ -1,16 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const DISCORD_CLIENT_ID = '1569669261331406858';
-const allowedOrigins = new Set([
-  'https://sterling-universite.vercel.app',
-  'http://localhost:5173',
-]);
-
-function corsHeaders(origin: string | null) {
+function corsHeaders(_origin: string | null) {
   return {
-    'Access-Control-Allow-Origin': origin && allowedOrigins.has(origin)
-      ? origin
-      : 'https://sterling-universite.vercel.app',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
@@ -28,7 +21,6 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin');
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) });
   if (req.method !== 'POST') return jsonResponse({ error: 'Méthode non autorisée.' }, 405, origin);
-  if (origin && !allowedOrigins.has(origin)) return jsonResponse({ error: 'Origine non autorisée.' }, 403, origin);
 
   try {
     const { code } = await req.json();
