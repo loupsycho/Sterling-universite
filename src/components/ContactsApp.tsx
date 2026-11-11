@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 
 type Character = {
   id: string;
@@ -142,7 +143,7 @@ export default function ContactsApp({
               <div className="flex min-h-64 items-center justify-center bg-ink-950">
                 {selectedCharacter.avatar_url ? (
                   <img
-                    src={selectedCharacter.avatar_url}
+                    src={getDiscordCompatibleImageUrl(selectedCharacter.avatar_url)}
                     alt={`${selectedCharacter.first_name || ''} ${selectedCharacter.name}`}
                     className="max-h-[420px] w-full object-cover"
                   />
@@ -277,7 +278,7 @@ export default function ContactsApp({
                     <div className="flex h-48 items-center justify-center bg-ink-950">
                       {character.avatar_url ? (
                         <img
-                          src={character.avatar_url}
+                          src={getDiscordCompatibleImageUrl(character.avatar_url)}
                           alt=""
                           className="h-full w-full object-cover"
                         />
