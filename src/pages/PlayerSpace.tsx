@@ -1,9 +1,9 @@
-
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import ContactsApp from '@/components/ContactsApp';
 import MessagesApp from '@/components/MessagesApp';
 import InstagramApp from '@/components/InstagramApp';
+import SecretScoop from '@/components/SecretScoop';
 
 type Character = {
   id: string;
@@ -20,7 +20,7 @@ type Props = {
   playerId: string;
 };
 
-type PhoneApp = 'home' | 'contacts' | 'messages' | 'instagram';
+type PhoneApp = 'home' | 'contacts' | 'messages' | 'instagram' | 'scoop';
 
 type SavedSession = {
   characterId: string | null;
@@ -42,7 +42,6 @@ function getSavedSession(playerId: string): SavedSession {
 
   try {
     const saved = localStorage.getItem(`sterling_player_session_${playerId}`);
-
     if (!saved) return emptySession;
 
     const parsed = JSON.parse(saved);
@@ -52,7 +51,8 @@ function getSavedSession(playerId: string): SavedSession {
       activeApp:
         parsed.activeApp === 'contacts' ||
         parsed.activeApp === 'messages' ||
-        parsed.activeApp === 'instagram'
+        parsed.activeApp === 'instagram' ||
+        parsed.activeApp === 'scoop'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
@@ -71,9 +71,7 @@ function getAvatarStoragePath(url: string | null) {
   if (index === -1) return null;
 
   try {
-    return decodeURIComponent(
-      url.slice(index + marker.length).split('?')[0]
-    );
+    return decodeURIComponent(url.slice(index + marker.length).split('?')[0]);
   } catch {
     return null;
   }
@@ -99,7 +97,6 @@ export default function PlayerSpace({ playerId }: Props) {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
-
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropUrl, setCropUrl] = useState('');
   const [cropZoom, setCropZoom] = useState(1);
@@ -179,7 +176,6 @@ export default function PlayerSpace({ playerId }: Props) {
 
     const width = image.naturalWidth;
     const height = image.naturalHeight;
-
     const scale = Math.max(CROP_SIZE / width, CROP_SIZE / height);
 
     setCropImageSize({ width, height });
@@ -322,11 +318,9 @@ export default function PlayerSpace({ playerId }: Props) {
         );
       });
 
-      const croppedFile = new File(
-        [croppedBlob],
-        'portrait.jpg',
-        { type: 'image/jpeg' }
-      );
+      const croppedFile = new File([croppedBlob], 'portrait.jpg', {
+        type: 'image/jpeg',
+      });
 
       if (croppedFile.size > 5 * 1024 * 1024) {
         throw new Error('La photo recadrée dépasse 5 Mo.');
@@ -363,9 +357,7 @@ export default function PlayerSpace({ playerId }: Props) {
       if (updateError) {
         console.error(updateError);
 
-        await supabase.storage
-          .from('character-avatars')
-          .remove([filePath]);
+        await supabase.storage.from('character-avatars').remove([filePath]);
 
         throw new Error(
           "La photo a été envoyée, mais n'a pas pu être enregistrée."
@@ -392,9 +384,12 @@ export default function PlayerSpace({ playerId }: Props) {
       closeCrop();
     } catch (error) {
       console.error(error);
+
       setAvatarError(
         `Erreur : ${
-          error instanceof Error ? error.message : "Impossible d'enregistrer la photo."
+          error instanceof Error
+            ? error.message
+            : "Impossible d'enregistrer la photo."
         }`
       );
     } finally {
@@ -525,9 +520,11 @@ export default function PlayerSpace({ playerId }: Props) {
 
           <div className="mt-10 rounded-2xl border border-gold-500/20 bg-ink-900/60 p-8">
             <span className="text-4xl">♙</span>
+
             <h2 className="mt-5 text-xl font-semibold text-bone-100">
               Aucun personnage pour le moment
             </h2>
+
             <p className="mt-3 text-sm text-bone-300">
               L'administration ajoutera tes personnages après validation de
               leurs fiches sur Discord.
@@ -626,7 +623,8 @@ export default function PlayerSpace({ playerId }: Props) {
           }}
           className="mb-6 rounded-lg border border-gold-500/30 px-4 py-2 text-sm text-gold-300 transition hover:bg-gold-500/10 hover:text-gold-200"
         >
-          ← {activeApp === 'home'
+          ←{' '}
+          {activeApp === 'home'
             ? 'Retour à mes personnages'
             : 'Retour au téléphone'}
         </button>
@@ -658,9 +656,11 @@ export default function PlayerSpace({ playerId }: Props) {
                 {selectedCharacter.age !== null && (
                   <p>Âge : {selectedCharacter.age} ans</p>
                 )}
+
                 {selectedCharacter.course_position && (
                   <p>Poste ou cursus : {selectedCharacter.course_position}</p>
                 )}
+
                 {selectedCharacter.housing && (
                   <p>Logement : {selectedCharacter.housing}</p>
                 )}
@@ -760,6 +760,17 @@ export default function PlayerSpace({ playerId }: Props) {
                       Instagram
                     </p>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveApp('scoop')}
+                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
+                    <span className="text-3xl">📰</span>
+                    <p className="mt-3 text-sm font-medium text-bone-100">
+                      The Secret Scoop
+                    </p>
+                  </button>
                 </div>
               </div>
             </div>
@@ -787,6 +798,13 @@ export default function PlayerSpace({ playerId }: Props) {
             characterId={selectedCharacter.id}
           />
         )}
+
+        {activeApp === 'scoop' && (
+          <SecretScoop
+            key={selectedCharacter.id}
+            characterId={selectedCharacter.id}
+          />
+        )}
       </div>
 
       {cropFile && cropUrl && (
@@ -802,7 +820,8 @@ export default function PlayerSpace({ playerId }: Props) {
               </h2>
 
               <p className="mt-2 text-sm text-bone-400">
-                Utilise les flèches pour déplacer la photo et les boutons pour zoomer.
+                Utilise les flèches pour déplacer la photo et les boutons pour
+                zoomer.
               </p>
             </div>
 
@@ -844,6 +863,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
               <div className="grid grid-cols-3 gap-2">
                 <div />
+
                 <button
                   type="button"
                   onClick={() => moveCrop('up')}
@@ -853,6 +873,7 @@ export default function PlayerSpace({ playerId }: Props) {
                 >
                   ↑
                 </button>
+
                 <div />
 
                 <button
@@ -881,7 +902,10 @@ export default function PlayerSpace({ playerId }: Props) {
                 <button
                   type="button"
                   onClick={() => moveCrop('right')}
-                  disabled={!cropImageSize.width || cropPosition.x <= CROP_SIZE - renderedWidth}
+                  disabled={
+                    !cropImageSize.width ||
+                    cropPosition.x <= CROP_SIZE - renderedWidth
+                  }
                   aria-label="Déplacer vers la droite"
                   className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
                 >
@@ -889,15 +913,20 @@ export default function PlayerSpace({ playerId }: Props) {
                 </button>
 
                 <div />
+
                 <button
                   type="button"
                   onClick={() => moveCrop('down')}
-                  disabled={!cropImageSize.height || cropPosition.y <= CROP_SIZE - renderedHeight}
+                  disabled={
+                    !cropImageSize.height ||
+                    cropPosition.y <= CROP_SIZE - renderedHeight
+                  }
                   aria-label="Déplacer vers le bas"
                   className="h-12 w-14 rounded-xl border border-gold-500/40 bg-ink-950 text-xl text-gold-300 hover:bg-gold-500/20 disabled:opacity-30"
                 >
                   ↓
                 </button>
+
                 <div />
               </div>
             </div>
