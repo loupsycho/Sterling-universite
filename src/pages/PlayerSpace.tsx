@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import ContactsApp from '@/components/ContactsApp';
 import MessagesApp from '@/components/MessagesApp';
@@ -25,6 +25,11 @@ type SavedSession = {
   characterId: string | null;
   activeApp: PhoneApp;
   messageContactId: string | null;
+};
+
+type CropPosition = {
+  x: number;
+  y: number;
 };
 
 function getSavedSession(playerId: string): SavedSession {
@@ -71,6 +76,8 @@ function getAvatarStoragePath(url: string | null) {
   }
 }
 
+const CROP_SIZE = 300;
+
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(
@@ -89,9 +96,119 @@ export default function PlayerSpace({ playerId }: Props) {
   const [avatarError, setAvatarError] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
 
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropUrl, setCropUrl] = useState('');
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropPosition, setCropPosition] = useState<CropPosition>({
+    x: 0,
+    y: 0,
+  });
+  const [cropImageSize, setCropImageSize] = useState({
+    width: 0,
+    height: 0,
+  });
+
+  const cropImageRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    imageX: number;
+    imageY: number;
+  } | null>(null);
+
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ||
     null;
+
+  const baseScale =
+    cropImageSize.width && cropImageSize.height
+      ? Math.max(
+          CROP_SIZE / cropImageSize.width,
+          CROP_SIZE / cropImageSize.height
+        )
+      : 1;
+
+  const renderedWidth = cropImageSize.width * baseScale * cropZoom;
+  const renderedHeight = cropImageSize.height * baseScale * cropZoom;
+
+  function clampPosition(x: number, y: number): CropPosition {
+    return {
+      x: Math.min(0, Math.max(CROP_SIZE - renderedWidth, x)),
+      y: Math.min(0, Math.max(CROP_SIZE - renderedHeight, y)),
+    };
+  }
+
+  function closeCrop() {
+    if (cropUrl) URL.revokeObjectURL(cropUrl);
+
+    setCropFile(null);
+    setCropUrl('');
+    setCropZoom(1);
+    setCropImageSize({ width: 0, height: 0 });
+    setCropPosition({ x: 0, y: 0 });
+    dragRef.current = null;
+  }
+
+  function handleCropImageLoad() {
+    const image = cropImageRef.current;
+    if (!image) return;
+
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+
+    const scale = Math.max(CROP_SIZE / width, CROP_SIZE / height);
+
+    setCropImageSize({ width, height });
+    setCropPosition({
+      x: (CROP_SIZE - width * scale) / 2,
+      y: (CROP_SIZE - height * scale) / 2,
+    });
+  }
+
+  function handleCropPointerDown(
+    event: React.PointerEvent<HTMLDivElement>
+  ) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    dragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      imageX: cropPosition.x,
+      imageY: cropPosition.y,
+    };
+  }
+
+  function handleCropPointerMove(
+    event: React.PointerEvent<HTMLDivElement>
+  ) {
+    if (!dragRef.current) return;
+
+    const deltaX = event.clientX - dragRef.current.startX;
+    const deltaY = event.clientY - dragRef.current.startY;
+
+    setCropPosition(
+      clampPosition(
+        dragRef.current.imageX + deltaX,
+        dragRef.current.imageY + deltaY
+      )
+    );
+  }
+
+  function handleCropPointerUp() {
+    dragRef.current = null;
+  }
+
+  function handleZoomChange(value: number) {
+    setCropZoom(value);
+
+    const newWidth = cropImageSize.width * baseScale * value;
+    const newHeight = cropImageSize.height * baseScale * value;
+
+    setCropPosition({
+      x: (CROP_SIZE - newWidth) / 2,
+      y: (CROP_SIZE - newHeight) / 2,
+    });
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -187,70 +304,147 @@ export default function PlayerSpace({ playerId }: Props) {
 
     setAvatarLoading(true);
 
-    const oldAvatarPath = getAvatarStoragePath(
-      selectedCharacter.avatar_url
-    );
+    try {
+      const image = cropImageRef.current;
 
-    const safeFileName = file.name
-      .normalize('NFKD')
-      .replace(/[^a-zA-Z0-9.-]/g, '_');
+      if (!image || !cropImageSize.width || !cropImageSize.height) {
+        throw new Error("L'image n'est pas encore prête.");
+      }
 
-    const filePath = `${selectedCharacter.id}/${crypto.randomUUID()}-${safeFileName}`;
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 600;
 
-    const { error: uploadError } = await supabase.storage
-      .from('character-avatars')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        throw new Error('Impossible de préparer le recadrage.');
+      }
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      context.drawImage(
+        image,
+        cropPosition.x * 2,
+        cropPosition.y * 2,
+        renderedWidth * 2,
+        renderedHeight * 2
+      );
+
+      const croppedBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Impossible de créer l'image recadrée."));
+          },
+          'image/jpeg',
+          0.92
+        );
       });
 
-    if (uploadError) {
-      console.error(uploadError);
-      setAvatarError(`Erreur d'envoi : ${uploadError.message}`);
+      const croppedFile = new File(
+        [croppedBlob],
+        'portrait.jpg',
+        { type: 'image/jpeg' }
+      );
+
+      if (croppedFile.size > 5 * 1024 * 1024) {
+        throw new Error('La photo recadrée dépasse 5 Mo.');
+      }
+
+      const oldAvatarPath = getAvatarStoragePath(
+        selectedCharacter.avatar_url
+      );
+
+      const filePath = `${selectedCharacter.id}/${crypto.randomUUID()}-portrait.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('character-avatars')
+        .upload(filePath, croppedFile, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error(uploadError);
+        throw new Error(uploadError.message);
+      }
+
+      const { data } = supabase.storage
+        .from('character-avatars')
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await supabase
+        .from('characters')
+        .update({ avatar_url: data.publicUrl })
+        .eq('id', selectedCharacter.id)
+        .eq('player_id', playerId);
+
+      if (updateError) {
+        console.error(updateError);
+
+        await supabase.storage
+          .from('character-avatars')
+          .remove([filePath]);
+
+        throw new Error(
+          "La photo a été envoyée, mais n'a pas pu être enregistrée."
+        );
+      }
+
+      setCharacters((current) =>
+        current.map((character) =>
+          character.id === selectedCharacter.id
+            ? { ...character, avatar_url: data.publicUrl }
+            : character
+        )
+      );
+
+      if (oldAvatarPath) {
+        const { error: deleteError } = await supabase.storage
+          .from('character-avatars')
+          .remove([oldAvatarPath]);
+
+        if (deleteError) console.error(deleteError);
+      }
+
+      setAvatarMessage('Photo de profil mise à jour !');
+      closeCrop();
+    } catch (error) {
+      console.error(error);
+      setAvatarError(
+        `Erreur : ${
+          error instanceof Error ? error.message : "Impossible d'enregistrer la photo."
+        }`
+      );
+    } finally {
       setAvatarLoading(false);
+    }
+  }
+
+  function handleFileSelection(file: File) {
+    setAvatarError('');
+    setAvatarMessage('');
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!allowedTypes.includes(file.type)) {
+      setAvatarError('Choisis une image au format JPG, PNG ou WebP.');
       return;
     }
 
-    const { data } = supabase.storage
-      .from('character-avatars')
-      .getPublicUrl(filePath);
-
-    const { error: updateError } = await supabase
-      .from('characters')
-      .update({ avatar_url: data.publicUrl })
-      .eq('id', selectedCharacter.id)
-      .eq('player_id', playerId);
-
-    if (updateError) {
-      console.error(updateError);
-
-      await supabase.storage
-        .from('character-avatars')
-        .remove([filePath]);
-
-      setAvatarError("La photo a été envoyée, mais n'a pas pu être enregistrée.");
-      setAvatarLoading(false);
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('La photo ne doit pas dépasser 5 Mo.');
       return;
     }
 
-    setCharacters((current) =>
-      current.map((character) =>
-        character.id === selectedCharacter.id
-          ? { ...character, avatar_url: data.publicUrl }
-          : character
-      )
-    );
+    const url = URL.createObjectURL(file);
 
-    if (oldAvatarPath) {
-      const { error: deleteError } = await supabase.storage
-        .from('character-avatars')
-        .remove([oldAvatarPath]);
-
-      if (deleteError) console.error(deleteError);
-    }
-
-    setAvatarMessage('Photo de profil mise à jour !');
-    setAvatarLoading(false);
+    setCropFile(file);
+    setCropUrl(url);
+    setCropZoom(1);
+    setCropImageSize({ width: 0, height: 0 });
   }
 
   async function handleAvatarDelete() {
@@ -498,8 +692,8 @@ export default function PlayerSpace({ playerId }: Props) {
                 </p>
 
                 <p className="mt-2 text-sm text-bone-400">
-                  Choisis une photo depuis ton appareil. Elle sera également
-                  utilisée dans tes Contacts et tes Messages.
+                  Choisis une photo depuis ton appareil. Tu pourras la recadrer
+                  avant de l'enregistrer.
                 </p>
 
                 <label className="mt-5 inline-flex cursor-pointer items-center justify-center rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400">
@@ -516,7 +710,7 @@ export default function PlayerSpace({ playerId }: Props) {
                     className="hidden"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
-                      if (file) handleAvatarUpload(file);
+                      if (file) handleFileSelection(file);
                       event.target.value = '';
                     }}
                   />
@@ -596,6 +790,107 @@ export default function PlayerSpace({ playerId }: Props) {
           />
         )}
       </div>
+
+      {cropFile && cropUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-4">
+          <div className="my-auto w-full max-w-lg rounded-3xl border border-gold-500/30 bg-ink-900 p-6 shadow-2xl">
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
+                Sterling Campus
+              </p>
+
+              <h2 className="mt-3 text-2xl font-semibold text-bone-100">
+                Recadrer la photo
+              </h2>
+
+              <p className="mt-2 text-sm text-bone-400">
+                Déplace la photo pour choisir la partie à conserver.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <div
+                className="relative overflow-hidden rounded-xl border-2 border-gold-400 bg-black"
+                style={{
+                  width: CROP_SIZE,
+                  height: CROP_SIZE,
+                  maxWidth: '100%',
+                  touchAction: 'none',
+                  cursor: 'grab',
+                }}
+                onPointerDown={handleCropPointerDown}
+                onPointerMove={handleCropPointerMove}
+                onPointerUp={handleCropPointerUp}
+                onPointerCancel={handleCropPointerUp}
+              >
+                <img
+                  ref={cropImageRef}
+                  src={cropUrl}
+                  alt="Aperçu du recadrage"
+                  onLoad={handleCropImageLoad}
+                  draggable={false}
+                  style={{
+                    position: 'absolute',
+                    width: renderedWidth,
+                    height: renderedHeight,
+                    maxWidth: 'none',
+                    left: cropPosition.x,
+                    top: cropPosition.y,
+                    pointerEvents: 'none',
+                    userSelect: 'none',
+                  }}
+                />
+
+                <div className="pointer-events-none absolute inset-0 border border-white/40" />
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <div className="flex items-center justify-between text-sm text-bone-300">
+                <label htmlFor="crop-zoom">Zoom</label>
+                <span>{Math.round(cropZoom * 100)} %</span>
+              </div>
+
+              <input
+                id="crop-zoom"
+                type="range"
+                min="1"
+                max="3"
+                step="0.05"
+                value={cropZoom}
+                onChange={(event) =>
+                  handleZoomChange(Number(event.target.value))
+                }
+                className="mt-3 w-full accent-yellow-500"
+              />
+
+              <p className="mt-2 text-center text-xs text-bone-500">
+                Fais glisser l'image et utilise le curseur pour zoomer.
+              </p>
+            </div>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                disabled={avatarLoading}
+                onClick={closeCrop}
+                className="flex-1 rounded-xl border border-white/20 px-5 py-3 text-sm text-bone-300 transition hover:bg-white/5 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                disabled={avatarLoading || !cropImageSize.width}
+                onClick={() => handleAvatarUpload(cropFile)}
+                className="flex-1 rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400 disabled:opacity-50"
+              >
+                {avatarLoading ? 'Enregistrement...' : 'Valider la photo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
