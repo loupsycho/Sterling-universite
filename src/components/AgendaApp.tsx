@@ -52,6 +52,18 @@ type Props = {
   characterId: string;
 };
 
+type AgendaItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  location: string | null;
+  kind: 'event' | 'proposal';
+  event?: AgendaEvent;
+  proposal?: Proposal;
+};
+
 const HOUSES = ['Alpha King', 'Kappa Gold', 'Omega Crow'];
 
 function normalize(value: string | null | undefined) {
@@ -172,6 +184,8 @@ export default function AgendaApp({ characterId }: Props) {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [responses, setResponses] = useState<ProposalResponse[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [today, setToday] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
   const [month, setMonth] = useState(() => new Date());
@@ -198,12 +212,58 @@ export default function AgendaApp({ characterId }: Props) {
     [character]
   );
 
+  // Les propositions du personnage et celles qu'il a acceptées
+  // apparaissent dans son agenda personnel.
+  const personalProposals = useMemo(() => {
+    return proposals.filter(proposal => {
+      if (proposal.character_id === characterId) return true;
+
+      const response = responses.find(
+        item =>
+          item.proposal_id === proposal.id &&
+          item.character_id === characterId
+      );
+
+      return response?.response === 'accepted';
+    });
+  }, [proposals, responses, characterId]);
+
+  const agendaItems = useMemo<AgendaItem[]>(() => {
+    const normalEvents: AgendaItem[] = events.map(event => ({
+      id: `event-${event.id}`,
+      title: event.title,
+      description: event.description,
+      starts_at: event.starts_at,
+      ends_at: event.ends_at,
+      location: event.location,
+      kind: 'event',
+      event,
+    }));
+
+    const personalProposalItems: AgendaItem[] = personalProposals.map(proposal => ({
+      id: `proposal-${proposal.id}`,
+      title: proposal.activity,
+      description: proposal.description,
+      starts_at: proposal.proposed_at,
+      ends_at: null,
+      location: null,
+      kind: 'proposal',
+      proposal,
+    }));
+
+    return [...normalEvents, ...personalProposalItems].sort(
+      (a, b) =>
+        (parseDate(a.starts_at)?.getTime() || 0) -
+        (parseDate(b.starts_at)?.getTime() || 0)
+    );
+  }, [events, personalProposals]);
+
   const selectedEvents = useMemo(
     () =>
-      events.filter(
-        event => localDateKey(event.starts_at) === selectedDate
+      agendaItems.filter(
+        item => localDateKey(item.starts_at) === selectedDate
       ),
-    [events, selectedDate]
+    [agendaItems, selectedDate]
   );
 
   const daysInMonth = useMemo(() => {
@@ -234,6 +294,26 @@ export default function AgendaApp({ characterId }: Props) {
 
       if (characterError) throw characterError;
       setCharacter(characterData as Character);
+
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError) throw authError;
+
+      const userId = authData.user?.id;
+
+      if (userId) {
+        const { data: adminData, error: adminError } = await supabase
+          .from('admin_users')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (adminError) throw adminError;
+        setIsAdmin(Boolean(adminData));
+      } else {
+        setIsAdmin(false);
+      }
 
       const [
         { data: eventData, error: eventError },
@@ -302,13 +382,14 @@ export default function AgendaApp({ characterId }: Props) {
   useEffect(() => {
     const interval = window.setInterval(() => {
       const current = new Date();
+      const previousDay = localDateKey(today);
+      const currentDay = localDateKey(current);
+
       setToday(current);
 
-      const newToday = localDateKey(current);
-      setSelectedDate(previous => {
-        const oldToday = localDateKey(today);
-        return previous === oldToday ? newToday : previous;
-      });
+      if (previousDay !== currentDay) {
+        setSelectedDate(currentDay);
+      }
 
       setMonth(previous => {
         if (
@@ -524,6 +605,33 @@ export default function AgendaApp({ characterId }: Props) {
     }
   }
 
+  async function deleteProposal(proposalId: string) {
+    if (!isAdmin) {
+      setError('Seuls les administrateurs peuvent supprimer les propositions.');
+      return;
+    }
+
+    if (!window.confirm('Supprimer définitivement cette proposition ?')) return;
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('agenda_proposals')
+        .delete()
+        .eq('id', proposalId);
+
+      if (deleteError) throw deleteError;
+
+      await loadAgenda();
+    } catch (err) {
+      console.error('Erreur de suppression de proposition :', err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Impossible de supprimer cette proposition.'
+      );
+    }
+  }
+
   function getResponse(proposalId: string) {
     return responses.find(item => item.proposal_id === proposalId)?.response;
   }
@@ -600,7 +708,7 @@ export default function AgendaApp({ characterId }: Props) {
 
               const date = new Date(month.getFullYear(), month.getMonth(), day);
               const key = localDateKey(date);
-              const hasEvent = events.some(
+              const hasEvent = agendaItems.some(
                 item => localDateKey(item.starts_at) === key
               );
               const isToday = key === localDateKey(today);
@@ -663,39 +771,46 @@ export default function AgendaApp({ characterId }: Props) {
             </p>
           ) : (
             <div className="space-y-3">
-              {selectedEvents.map(event => {
-                const canEdit = scopes.some(
-                  scope =>
-                    scope.type === event.event_type &&
-                    scope.name === event.scope_name
-                );
+              {selectedEvents.map(item => {
+                const event = item.event;
+                const canEdit = event
+                  ? scopes.some(
+                      scope =>
+                        scope.type === event.event_type &&
+                        scope.name === event.scope_name
+                    )
+                  : false;
 
                 return (
                   <article
-                    key={event.id}
+                    key={item.id}
                     className="rounded-xl border border-white/10 bg-ink-950 p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-semibold text-gold-200">
-                          {event.title}
-                        </h3>
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-gold-200">
+                            {item.title}
+                          </h3>
+                          <span className="rounded-full border border-gold-500/30 px-2 py-1 text-xs text-gold-300">
+                            {item.kind === 'proposal' ? 'Proposition acceptée' : 'Événement'}
+                          </span>
+                        </div>
+
                         <p className="mt-1 text-xs text-bone-400">
-                          {formatTime(event.starts_at)}
-                          {event.ends_at
-                            ? ` – ${formatTime(event.ends_at)}`
-                            : ''}
-                          {' · '}
-                          {event.scope_name}
+                          {formatTime(item.starts_at)}
+                          {item.ends_at ? ` – ${formatTime(item.ends_at)}` : ''}
+                          {event ? ` · ${event.scope_name}` : ''}
                         </p>
-                        {event.location && (
+
+                        {item.location && (
                           <p className="mt-1 text-sm text-bone-300">
-                            📍 {event.location}
+                            📍 {item.location}
                           </p>
                         )}
                       </div>
 
-                      {canEdit && (
+                      {event && canEdit && (
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -715,9 +830,9 @@ export default function AgendaApp({ characterId }: Props) {
                       )}
                     </div>
 
-                    {event.description && (
+                    {item.description && (
                       <p className="mt-3 whitespace-pre-wrap text-sm text-bone-300">
-                        {event.description}
+                        {item.description}
                       </p>
                     )}
                   </article>
@@ -870,9 +985,16 @@ export default function AgendaApp({ characterId }: Props) {
         </section>
 
         <section className="rounded-2xl border border-gold-500/20 bg-ink-900 p-4">
-          <h2 className="mb-4 text-lg font-semibold text-gold-300">
-            Propositions des personnages
-          </h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-gold-300">
+              Propositions des personnages
+            </h2>
+            {isAdmin && (
+              <span className="rounded-full border border-gold-500/40 px-2 py-1 text-xs text-gold-300">
+                Administration
+              </span>
+            )}
+          </div>
 
           {proposals.length === 0 ? (
             <p className="text-sm text-bone-400">
@@ -882,6 +1004,7 @@ export default function AgendaApp({ characterId }: Props) {
             <div className="space-y-3">
               {proposals.map(proposal => {
                 const response = getResponse(proposal.id);
+                const isOwnProposal = proposal.character_id === characterId;
 
                 return (
                   <article
@@ -907,10 +1030,14 @@ export default function AgendaApp({ characterId }: Props) {
                       </p>
                     )}
 
-                    {response ? (
+                    {isOwnProposal ? (
+                      <p className="mt-3 text-sm text-gold-400">
+                        ✓ Cette proposition figure automatiquement dans ton agenda.
+                      </p>
+                    ) : response ? (
                       <p className="mt-3 text-sm text-gold-400">
                         {response === 'accepted'
-                          ? '✓ Tu as accepté cette proposition.'
+                          ? '✓ Tu as accepté cette proposition. Elle figure dans ton agenda.'
                           : '✕ Tu as refusé cette proposition.'}
                       </p>
                     ) : (
@@ -933,6 +1060,18 @@ export default function AgendaApp({ characterId }: Props) {
                           className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300"
                         >
                           Refuser
+                        </button>
+                      </div>
+                    )}
+
+                    {isAdmin && (
+                      <div className="mt-3 border-t border-white/10 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => void deleteProposal(proposal.id)}
+                          className="text-sm text-red-400 underline"
+                        >
+                          Supprimer cette proposition
                         </button>
                       </div>
                     )}
