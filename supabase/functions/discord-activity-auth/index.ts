@@ -69,10 +69,17 @@ Deno.serve(async (req: Request) => {
 
     const discordUser = await discordUserResponse.json();
     const discordUserId = String(discordUser.id);
+    const discordUsername = String(discordUser.global_name || discordUser.username || 'Membre');
     const verifiedDiscordEmail =
       discordUser.verified === true && typeof discordUser.email === 'string'
         ? discordUser.email.trim().toLowerCase()
         : null;
+
+    if (!verifiedDiscordEmail) {
+      return jsonResponse({
+        error: 'Discord n’a pas fourni d’adresse e-mail vérifiée. Autorise l’accès à ton e-mail dans Discord puis réessaie.',
+      }, 403, origin);
+    }
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -81,9 +88,8 @@ Deno.serve(async (req: Request) => {
     let matchingDiscordUser: any = null;
     let matchingEmailUser: any = null;
 
-    // On conserve la priorité au lien Discord déjà enregistré.
-    // Si aucun lien n'existe, on retrouve le compte Sterling par son e-mail
-    // uniquement lorsque Discord confirme que cette adresse est vérifiée.
+    // Retrouve d'abord un compte déjà associé à cet identifiant Discord,
+    // puis un compte Sterling existant avec la même adresse vérifiée.
     for (let page = 1; ; page += 1) {
       const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
       if (error) {
@@ -97,28 +103,97 @@ Deno.serve(async (req: Request) => {
           (user.identities || []).some((identity: any) =>
             identity.provider === 'discord' &&
             (identity.provider_id === discordUserId || identity.identity_data?.sub === discordUserId)
-          )
+          ) || user.user_metadata?.discord_id === discordUserId
         ) || null;
       }
 
-      if (!matchingEmailUser && verifiedDiscordEmail) {
+      if (!matchingEmailUser) {
         matchingEmailUser = users.find((user: any) =>
           typeof user.email === 'string' &&
           user.email.trim().toLowerCase() === verifiedDiscordEmail
         ) || null;
       }
 
-      if (matchingDiscordUser || (matchingEmailUser && verifiedDiscordEmail)) break;
+      if (matchingDiscordUser || matchingEmailUser) break;
       if (users.length < 1000) break;
     }
 
-    const matchingUser = matchingDiscordUser || matchingEmailUser;
-    if (!matchingUser?.email) {
-      return jsonResponse({
-        error: verifiedDiscordEmail
-          ? 'Aucun compte Sterling ne correspond à l’adresse vérifiée de ce Discord. Aucun nouveau compte ni personnage n’a été créé.'
-          : 'Discord n’a pas fourni d’adresse e-mail vérifiée. Autorise l’accès à ton e-mail dans Discord puis réessaie.',
-      }, 403, origin);
+    let matchingUser = matchingDiscordUser || matchingEmailUser;
+
+    // Première connexion : crée uniquement le compte joueur, en attente.
+    // Aucun personnage et aucun droit administrateur ne sont créés ici.
+    if (!matchingUser) {
+      const { data: createdData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: verifiedDiscordEmail,
+        email_confirm: true,
+        user_metadata: {
+          discord_id: discordUserId,
+          discord_username: discordUsername,
+        },
+      });
+
+      if (createError || !createdData.user) {
+        console.error('Impossible de créer le compte joueur initial.', createError);
+        return jsonResponse({
+          error: 'Impossible de créer ta demande d’inscription. Réessaie ou contacte l’administration.',
+        }, 500, origin);
+      }
+
+      matchingUser = createdData.user;
+    } else {
+      // Mémorise l'identifiant Discord après correspondance vérifiée,
+      // afin de retrouver le même compte même si l'adresse change plus tard.
+      const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(
+        matchingUser.id,
+        {
+          user_metadata: {
+            ...(matchingUser.user_metadata || {}),
+            discord_id: discordUserId,
+            discord_username: discordUsername,
+          },
+        }
+      );
+
+      if (metadataError) {
+        console.error('Impossible de mettre à jour les informations Discord du compte.');
+        return jsonResponse({ error: 'Impossible de mettre à jour ton compte Sterling.' }, 500, origin);
+      }
+    }
+
+    // Toute personne qui n'a pas encore de fiche joueur reçoit une demande
+    // en attente. Les statuts existants (accepté/refusé/en attente) sont conservés.
+    const { data: existingPlayer, error: playerLookupError } = await supabaseAdmin
+      .from('players')
+      .select('id')
+      .eq('id', matchingUser.id)
+      .maybeSingle();
+
+    if (playerLookupError) {
+      console.error('Impossible de vérifier la fiche joueur.');
+      return jsonResponse({ error: 'Impossible de préparer ta demande d’inscription.' }, 500, origin);
+    }
+
+    if (!existingPlayer) {
+      const { error: playerInsertError } = await supabaseAdmin.from('players').insert({
+        id: matchingUser.id,
+        discord_username: discordUsername,
+        registration_status: 'pending',
+      });
+
+      if (playerInsertError) {
+        console.error('Impossible de créer la demande joueur.', playerInsertError);
+        return jsonResponse({ error: 'Ton compte a été créé, mais la demande d’inscription n’a pas pu être enregistrée. Contacte l’administration.' }, 500, origin);
+      }
+    } else {
+      const { error: playerUpdateError } = await supabaseAdmin
+        .from('players')
+        .update({ discord_username: discordUsername })
+        .eq('id', matchingUser.id);
+
+      if (playerUpdateError) {
+        console.error('Impossible de mettre à jour le nom Discord du joueur.');
+        return jsonResponse({ error: 'Impossible de mettre à jour ton profil Sterling.' }, 500, origin);
+      }
     }
 
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
