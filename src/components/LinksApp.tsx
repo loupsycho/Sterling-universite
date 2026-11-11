@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { getDiscordCompatibleImageUrl } from "@/lib/imageUrls";
 
 type LinkChoice = {
   category: string;
@@ -85,7 +86,7 @@ function Avatar({
     >
       {character?.avatar_url ? (
         <img
-          src={character.avatar_url}
+          src={getDiscordCompatibleImageUrl(character.avatar_url)}
           alt={characterName(character)}
           style={{
             width: "100%",
