@@ -21,9 +21,13 @@ type Message = {
 
 type Props = {
   characterId: string;
+  initialContactId?: string | null;
 };
 
-export default function MessagesApp({ characterId }: Props) {
+export default function MessagesApp({
+  characterId,
+  initialContactId = null,
+}: Props) {
   const [contacts, setContacts] = useState<Character[]>([]);
   const [selectedContact, setSelectedContact] = useState<Character | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -33,7 +37,6 @@ export default function MessagesApp({ characterId }: Props) {
   const [error, setError] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
 
-  // Sélectionner le personnage actif avant toute opération de messagerie
   useEffect(() => {
     let mounted = true;
 
@@ -67,7 +70,6 @@ export default function MessagesApp({ characterId }: Props) {
     };
   }, [characterId]);
 
-  // Charger les contacts une fois le personnage activé
   useEffect(() => {
     let mounted = true;
 
@@ -99,7 +101,19 @@ export default function MessagesApp({ characterId }: Props) {
     };
   }, [characterId, sessionReady]);
 
-  // Charger la conversation du personnage actif
+  // Ouvrir directement le contact choisi depuis Contacts
+  useEffect(() => {
+    if (!initialContactId || !sessionReady) return;
+
+    const contact = contacts.find(
+      (item) => item.id === initialContactId
+    );
+
+    if (contact) {
+      setSelectedContact(contact);
+    }
+  }, [initialContactId, contacts, sessionReady]);
+
   useEffect(() => {
     let mounted = true;
 
