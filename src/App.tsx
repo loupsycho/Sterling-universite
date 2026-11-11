@@ -7,61 +7,81 @@ import HomePage from '@/pages/HomePage';
 import { supabase } from '@/lib/supabase';
 
 type AppMode = 'choice' | 'admin' | 'player';
+type RegistrationStatus = 'pending' | 'approved' | 'rejected';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [registrationStatus, setRegistrationStatus] =
+    useState<RegistrationStatus | null>(null);
   const [mode, setMode] = useState<AppMode>('choice');
 
   useEffect(() => {
-    let mounted = true;
-
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession();
-
-      if (!mounted) return;
-
-      setSession(data.session);
-      setLoading(false);
-    };
-
-    loadSession();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (!mounted) return;
-
       setSession(newSession);
+      setMode('choice');
+      setIsAdmin(false);
+      setRegistrationStatus(null);
+      setLoading(true);
+    });
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.error(error);
+      }
+      setSession(data.session);
       setLoading(false);
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
     let mounted = true;
 
-    const checkAdmin = async () => {
+    const loadAccess = async () => {
       if (!session) {
         setIsAdmin(false);
-        setMode('choice');
+        setRegistrationStatus(null);
         return;
       }
 
-      const { data, error } = await supabase.rpc('is_admin');
+      const { data: adminData, error: adminError } =
+        await supabase.rpc('is_admin');
 
       if (!mounted) return;
 
-      setIsAdmin(!error && data === true);
-      setMode('choice');
+      const admin = !adminError && adminData === true;
+      setIsAdmin(admin);
+
+      if (admin) {
+        setRegistrationStatus('approved');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('players')
+        .select('registration_status')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error('Erreur de vérification du compte :', error);
+        setRegistrationStatus(null);
+        return;
+      }
+
+      setRegistrationStatus(
+        data?.registration_status as RegistrationStatus | null
+      );
     };
 
-    checkAdmin();
+    loadAccess();
 
     return () => {
       mounted = false;
@@ -90,16 +110,55 @@ export default function App() {
         </section>
       ) : !session ? (
         <HomePage />
+      ) : registrationStatus === null ? (
+        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <h1 className="text-2xl font-semibold text-bone-100">
+            Vérification de votre inscription
+          </h1>
+          <p className="mt-4 text-sm text-bone-300">
+            Impossible de vérifier votre accès. Veuillez réessayer en vous reconnectant.
+          </p>
+          <button onClick={handleSignOut} className="mt-8 text-gold-300 underline">
+            Se déconnecter
+          </button>
+        </section>
+      ) : registrationStatus === 'pending' ? (
+        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <span className="text-4xl">⌛</span>
+          <h1 className="mt-6 text-3xl font-semibold text-gold-300">
+            Demande en attente
+          </h1>
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-bone-300">
+            Votre demande d'inscription à Sterling University a bien été reçue.
+            Elle sera examinée par l'administration. Vous pourrez accéder à votre
+            espace personnel dès qu'elle sera acceptée.
+          </p>
+          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
+            Se déconnecter
+          </button>
+        </section>
+      ) : registrationStatus === 'rejected' ? (
+        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <span className="text-4xl">✕</span>
+          <h1 className="mt-6 text-3xl font-semibold text-bone-100">
+            Demande refusée
+          </h1>
+          <p className="mt-4 max-w-md text-sm text-bone-300">
+            Votre demande d'inscription n'a pas été acceptée.
+            Vous ne pouvez pas accéder à Sterling Campus.
+          </p>
+          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
+            Se déconnecter
+          </button>
+        </section>
       ) : mode === 'choice' ? (
         <section className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
-
           <h1 className="mt-6 text-3xl font-semibold text-bone-100">
             Bienvenue, {displayName}
           </h1>
-
           <p className="mt-4 text-sm text-bone-300">
             Choisissez l'espace que vous souhaitez rejoindre.
           </p>
@@ -134,10 +193,7 @@ export default function App() {
             </button>
           </div>
 
-          <button
-            onClick={handleSignOut}
-            className="mt-10 text-sm text-bone-400 underline underline-offset-4 hover:text-gold-300"
-          >
+          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
             Se déconnecter
           </button>
         </section>
@@ -146,17 +202,14 @@ export default function App() {
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
-
           <h1 className="mt-6 text-3xl font-semibold text-bone-100">
             {mode === 'admin' ? 'Administration' : 'Mon espace joueur'}
           </h1>
-
           <p className="mt-4 text-sm text-bone-300">
             {mode === 'admin'
               ? 'Votre espace de gestion sera bientôt disponible.'
               : 'Vos personnages seront bientôt disponibles.'}
           </p>
-
           <button
             onClick={() => setMode('choice')}
             className="mt-10 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
