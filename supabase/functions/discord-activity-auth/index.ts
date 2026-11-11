@@ -38,7 +38,10 @@ Deno.serve(async (req: Request) => {
 
     const discordClientSecret = Deno.env.get('DISCORD_CLIENT_SECRET');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const legacyServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const secretKeysRaw = Deno.env.get('SUPABASE_SECRET_KEYS');
+    const secretKeys = secretKeysRaw ? JSON.parse(secretKeysRaw) : {};
+    const serviceRoleKey = legacyServiceRoleKey || secretKeys.default;
     if (!discordClientSecret || !supabaseUrl || !serviceRoleKey) {
       console.error('Configuration serveur incomplète.');
       return jsonResponse({ error: 'La configuration serveur est incomplète.' }, 500, origin);
