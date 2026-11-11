@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 
 type ScoopPost = {
   id: string;
@@ -493,7 +494,7 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
           <div className="relative w-14 h-14 rounded-full overflow-hidden border border-gold-500/50 bg-ink-800 flex items-center justify-center shrink-0">
             {settings.avatar_url ? (
               <img
-                src={settings.avatar_url}
+                src={getDiscordCompatibleImageUrl(settings.avatar_url)}
                 alt="The Secret Scoop"
                 className="w-full h-full object-cover"
               />
@@ -617,7 +618,7 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
 
                 {post.image_url && (
                   <img
-                    src={post.image_url}
+                    src={getDiscordCompatibleImageUrl(post.image_url)}
                     alt="Publication"
                     className="w-full max-h-80 object-cover rounded-lg border border-gold-500/20"
                   />
