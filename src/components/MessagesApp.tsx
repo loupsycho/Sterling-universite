@@ -1,6 +1,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 
 type Character = {
   id: string;
@@ -290,7 +291,7 @@ export default function MessagesApp({
               >
                 {contact.avatar_url ? (
                   <img
-                    src={contact.avatar_url}
+                    src={getDiscordCompatibleImageUrl(contact.avatar_url)}
                     alt=""
                     className="h-12 w-12 rounded-full object-cover"
                   />
@@ -334,7 +335,7 @@ export default function MessagesApp({
 
             {selectedContact.avatar_url ? (
               <img
-                src={selectedContact.avatar_url}
+                src={getDiscordCompatibleImageUrl(selectedContact.avatar_url)}
                 alt=""
                 className="h-11 w-11 rounded-full object-cover"
               />
