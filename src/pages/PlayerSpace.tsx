@@ -1,6 +1,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 import ContactsApp from '@/components/ContactsApp';
 import MessagesApp from '@/components/MessagesApp';
 import InstagramApp from '@/components/InstagramApp';
@@ -881,7 +882,7 @@ export default function PlayerSpace({ playerId }: Props) {
                   <div className="flex h-56 items-center justify-center bg-ink-950">
                     {character.avatar_url ? (
                       <img
-                        src={character.avatar_url}
+                        src={getDiscordCompatibleImageUrl(character.avatar_url)}
                         alt={`${character.first_name || ''} ${character.name}`}
                         className="h-full w-full object-cover"
                       />
@@ -951,7 +952,7 @@ export default function PlayerSpace({ playerId }: Props) {
             <div className="flex h-64 items-center justify-center bg-ink-950">
               {selectedCharacter.avatar_url ? (
                 <img
-                  src={selectedCharacter.avatar_url}
+                  src={getDiscordCompatibleImageUrl(selectedCharacter.avatar_url)}
                   alt={`${selectedCharacter.first_name || ''} ${selectedCharacter.name}`}
                   className="h-full w-full object-cover"
                 />
