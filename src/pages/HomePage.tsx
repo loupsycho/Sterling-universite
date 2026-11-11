@@ -35,7 +35,7 @@ export default function HomePage() {
           response_type: 'code',
           state: '',
           prompt: 'none',
-          scope: ['identify'],
+          scope: ['identify', 'email'],
         });
 
         // Appel direct à la fonction : seule la clé publique est envoyée.
