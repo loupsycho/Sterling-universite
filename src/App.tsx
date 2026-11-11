@@ -75,12 +75,12 @@ export default function App() {
 
             <p className="mt-4 text-sm leading-relaxed text-bone-300">
               Votre connexion est établie.
-              Votre espace personnel vous attend.
+              Retrouvez votre espace personnel et gérez vos personnages.
             </p>
 
             <div className="mt-8 rounded-xl border border-gold-500/10 bg-ink-950/70 p-5">
               <p className="text-sm text-bone-200">
-                Espace étudiant
+                Mon espace personnel
               </p>
               <p className="mt-2 text-xs text-bone-400">
                 La sélection de vos personnages sera bientôt disponible.
