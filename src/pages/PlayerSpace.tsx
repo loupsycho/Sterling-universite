@@ -32,6 +32,15 @@ type PhoneApp =
   | 'agenda'
   | 'links';
 
+type NotificationApp =
+  | 'messages'
+  | 'instagram'
+  | 'scoop'
+  | 'agenda'
+  | 'links';
+
+type NotificationCounts = Record<NotificationApp, number>;
+
 type SavedSession = {
   characterId: string | null;
   activeApp: PhoneApp;
@@ -41,6 +50,14 @@ type SavedSession = {
 type CropPosition = {
   x: number;
   y: number;
+};
+
+const EMPTY_NOTIFICATION_COUNTS: NotificationCounts = {
+  messages: 0,
+  instagram: 0,
+  scoop: 0,
+  agenda: 0,
+  links: 0,
 };
 
 function getSavedSession(playerId: string): SavedSession {
@@ -82,6 +99,7 @@ function getAvatarStoragePath(url: string | null) {
 
   const marker =
     '/storage/v1/object/public/character-avatars/';
+
   const index = url.indexOf(marker);
 
   if (index === -1) return null;
@@ -100,31 +118,41 @@ const CROP_STEP = 20;
 
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
+
   const [selectedCharacterId, setSelectedCharacterId] =
     useState<string | null>(
       () => getSavedSession(playerId).characterId
     );
+
   const [activeApp, setActiveApp] = useState<PhoneApp>(
     () => getSavedSession(playerId).activeApp
   );
+
   const [messageContactId, setMessageContactId] =
     useState<string | null>(
       () => getSavedSession(playerId).messageContactId
     );
+
   const [sessionRestored, setSessionRestored] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
+
+  const [notificationCounts, setNotificationCounts] =
+    useState<NotificationCounts>(EMPTY_NOTIFICATION_COUNTS);
+
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropUrl, setCropUrl] = useState('');
   const [cropZoom, setCropZoom] = useState(1);
+
   const [cropPosition, setCropPosition] =
     useState<CropPosition>({
       x: 0,
       y: 0,
     });
+
   const [cropImageSize, setCropImageSize] = useState({
     width: 0,
     height: 0,
@@ -137,6 +165,10 @@ export default function PlayerSpace({ playerId }: Props) {
       (character) => character.id === selectedCharacterId
     ) || null;
 
+  const totalUnreadNotifications = Object.values(
+    notificationCounts
+  ).reduce((total, count) => total + count, 0);
+
   const baseScale =
     cropImageSize.width && cropImageSize.height
       ? Math.max(
@@ -147,6 +179,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
   const renderedWidth =
     cropImageSize.width * baseScale * cropZoom;
+
   const renderedHeight =
     cropImageSize.height * baseScale * cropZoom;
 
@@ -175,12 +208,15 @@ export default function PlayerSpace({ playerId }: Props) {
 
   function handleZoomChange(value: number) {
     const newZoom = Math.min(3, Math.max(1, value));
+
     const newWidth =
       cropImageSize.width * baseScale * newZoom;
+
     const newHeight =
       cropImageSize.height * baseScale * newZoom;
 
     setCropZoom(newZoom);
+
     setCropPosition({
       x: (CROP_SIZE - newWidth) / 2,
       y: (CROP_SIZE - newHeight) / 2,
@@ -199,22 +235,26 @@ export default function PlayerSpace({ playerId }: Props) {
 
   function handleCropImageLoad() {
     const image = cropImageRef.current;
+
     if (!image) return;
 
     const width = image.naturalWidth;
     const height = image.naturalHeight;
+
     const scale = Math.max(
       CROP_SIZE / width,
       CROP_SIZE / height
     );
 
     setCropImageSize({ width, height });
+
     setCropPosition({
       x: (CROP_SIZE - width * scale) / 2,
       y: (CROP_SIZE - height * scale) / 2,
     });
   }
 
+  // Chargement des personnages
   useEffect(() => {
     let mounted = true;
 
@@ -271,6 +311,7 @@ export default function PlayerSpace({ playerId }: Props) {
     };
   }, [playerId]);
 
+  // Sauvegarde de la session
   useEffect(() => {
     if (!sessionRestored) return;
 
@@ -292,6 +333,112 @@ export default function PlayerSpace({ playerId }: Props) {
     sessionRestored,
   ]);
 
+  // Chargement et actualisation des notifications
+  useEffect(() => {
+    if (!selectedCharacterId) {
+      setNotificationCounts(EMPTY_NOTIFICATION_COUNTS);
+      return;
+    }
+
+    let mounted = true;
+
+    async function loadNotifications() {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('source_app')
+        .eq('recipient_character_id', selectedCharacterId)
+        .eq('is_read', false);
+
+      if (error) {
+        console.error(
+          'Erreur lors du chargement des notifications :',
+          error
+        );
+        return;
+      }
+
+      if (!mounted) return;
+
+      const counts: NotificationCounts = {
+        messages: 0,
+        instagram: 0,
+        scoop: 0,
+        agenda: 0,
+        links: 0,
+      };
+
+      (data || []).forEach((notification) => {
+        const app = notification.source_app as NotificationApp;
+
+        if (app in counts) {
+          counts[app]++;
+        }
+      });
+
+      setNotificationCounts(counts);
+    }
+
+    loadNotifications();
+
+    const channel = supabase
+      .channel(`notifications-${selectedCharacterId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_character_id=eq.${selectedCharacterId}`,
+        },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    const handleFocus = () => {
+      loadNotifications();
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('focus', handleFocus);
+      supabase.removeChannel(channel);
+    };
+  }, [selectedCharacterId]);
+
+  // Ouvre une application et marque ses notifications comme lues
+  async function openNotifiedApp(app: NotificationApp) {
+    if (selectedCharacter) {
+      const { error } = await supabase
+        .from('notifications')
+        .update({
+          is_read: true,
+          read_at: new Date().toISOString(),
+        })
+        .eq('recipient_character_id', selectedCharacter.id)
+        .eq('source_app', app)
+        .eq('is_read', false);
+
+      if (error) {
+        console.error(
+          'Erreur lors de la lecture des notifications :',
+          error
+        );
+      } else {
+        setNotificationCounts((current) => ({
+          ...current,
+          [app]: 0,
+        }));
+      }
+    }
+
+    setActiveApp(app);
+  }
+
+  // Gestion de la photo de profil
   async function handleAvatarUpload(file: File) {
     if (!selectedCharacter) return;
 
@@ -332,6 +479,7 @@ export default function PlayerSpace({ playerId }: Props) {
       }
 
       const canvas = document.createElement('canvas');
+
       canvas.width = 600;
       canvas.height = 600;
 
@@ -544,7 +692,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
   function openMessages(contactId?: string) {
     setMessageContactId(contactId || null);
-    setActiveApp('messages');
+    void openNotifiedApp('messages');
   }
 
   function backToPhone() {
@@ -560,6 +708,7 @@ export default function PlayerSpace({ playerId }: Props) {
     setAvatarMessage('');
   }
 
+  // Chargement
   if (loading) {
     return (
       <section className="flex flex-1 items-center justify-center px-6 py-10">
@@ -587,14 +736,18 @@ export default function PlayerSpace({ playerId }: Props) {
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
+
           <h1 className="mt-4 text-3xl font-semibold text-bone-100">
             Mon espace joueur
           </h1>
+
           <div className="mt-10 rounded-2xl border border-gold-500/20 bg-ink-900/60 p-8">
             <span className="text-4xl">♙</span>
+
             <h2 className="mt-5 text-xl font-semibold text-bone-100">
               Aucun personnage pour le moment
             </h2>
+
             <p className="mt-3 text-sm text-bone-300">
               L'administration ajoutera tes personnages après validation de
               leurs fiches sur Discord.
@@ -612,12 +765,15 @@ export default function PlayerSpace({ playerId }: Props) {
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
+
           <h1 className="mt-4 text-3xl font-semibold text-bone-100">
             Mon espace joueur
           </h1>
+
           <p className="mt-3 text-sm text-bone-300">
             Sélectionne un personnage pour accéder à son téléphone personnel.
           </p>
+
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {characters.map((character) => (
               <button
@@ -644,24 +800,29 @@ export default function PlayerSpace({ playerId }: Props) {
                       <span className="text-6xl text-gold-300/60">
                         ♙
                       </span>
+
                       <p className="mt-3 text-xs uppercase tracking-widest text-bone-400">
                         Portrait à ajouter
                       </p>
                     </div>
                   )}
                 </div>
+
                 <div className="p-5">
                   <p className="text-xs uppercase tracking-[0.2em] text-gold-300">
                     {character.character_type || 'Personnage'}
                   </p>
+
                   <h2 className="mt-2 text-xl font-semibold text-bone-100">
                     {character.first_name} {character.name}
                   </h2>
+
                   {character.age !== null && (
                     <p className="mt-3 text-sm text-bone-300">
                       {character.age} ans
                     </p>
                   )}
+
                   <p className="mt-5 border-t border-white/10 pt-4 text-center text-sm text-gold-300">
                     Ouvrir le téléphone →
                   </p>
@@ -714,6 +875,7 @@ export default function PlayerSpace({ playerId }: Props) {
               <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
                 {selectedCharacter.character_type || 'Personnage'}
               </p>
+
               <h1 className="mt-3 text-2xl font-semibold text-bone-100">
                 {selectedCharacter.first_name} {selectedCharacter.name}
               </h1>
@@ -722,20 +884,38 @@ export default function PlayerSpace({ playerId }: Props) {
                 {selectedCharacter.age !== null && (
                   <p>Âge : {selectedCharacter.age} ans</p>
                 )}
+
                 {selectedCharacter.course_position && (
                   <p>
                     Poste ou cursus : {selectedCharacter.course_position}
                   </p>
                 )}
+
                 {selectedCharacter.housing && (
                   <p>Logement : {selectedCharacter.housing}</p>
                 )}
               </div>
 
+              {/* Compteur général des notifications */}
+              {totalUnreadNotifications > 0 && (
+                <div className="mb-7 mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-left">
+                  <p className="text-sm font-semibold text-red-300">
+                    🔔 {totalUnreadNotifications} notification
+                    {totalUnreadNotifications > 1 ? 's' : ''} non lue
+                    {totalUnreadNotifications > 1 ? 's' : ''}
+                  </p>
+
+                  <p className="mt-1 text-xs text-bone-300">
+                    Tu as de nouvelles notifications sur ton téléphone.
+                  </p>
+                </div>
+              )}
+
               <div className="mt-8 border-t border-white/10 pt-6">
                 <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
                   Photo de profil
                 </p>
+
                 <p className="mt-2 text-sm text-bone-400">
                   Choisis une photo depuis ton appareil. Tu pourras la recadrer
                   avant de l'enregistrer.
@@ -747,6 +927,7 @@ export default function PlayerSpace({ playerId }: Props) {
                     : selectedCharacter.avatar_url
                       ? '📷 Changer la photo'
                       : '📷 Ajouter une photo'}
+
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -754,7 +935,9 @@ export default function PlayerSpace({ playerId }: Props) {
                     className="hidden"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
+
                       if (file) handleFileSelection(file);
+
                       event.target.value = '';
                     }}
                   />
@@ -794,71 +977,115 @@ export default function PlayerSpace({ playerId }: Props) {
                 </p>
 
                 <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+
+                  {/* Contacts */}
                   <button
                     type="button"
                     onClick={() => setActiveApp('contacts')}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
                     <span className="text-3xl">👥</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Contacts
                     </p>
                   </button>
 
+                  {/* Messages */}
                   <button
                     type="button"
                     onClick={() => openMessages()}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
+                    {notificationCounts.messages > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.messages}
+                      </span>
+                    )}
+
                     <span className="text-3xl">✉️</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Messages
                     </p>
                   </button>
 
+                  {/* Instagram */}
                   <button
                     type="button"
-                    onClick={() => setActiveApp('instagram')}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    onClick={() => void openNotifiedApp('instagram')}
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
+                    {notificationCounts.instagram > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.instagram}
+                      </span>
+                    )}
+
                     <span className="text-3xl">📸</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Instagram
                     </p>
                   </button>
 
+                  {/* The Secret Scoop */}
                   <button
                     type="button"
-                    onClick={() => setActiveApp('scoop')}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    onClick={() => void openNotifiedApp('scoop')}
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
+                    {notificationCounts.scoop > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.scoop}
+                      </span>
+                    )}
+
                     <span className="text-3xl">📰</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       The Secret Scoop
                     </p>
                   </button>
 
+                  {/* Agenda */}
                   <button
                     type="button"
-                    onClick={() => setActiveApp('agenda')}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    onClick={() => void openNotifiedApp('agenda')}
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
+                    {notificationCounts.agenda > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.agenda}
+                      </span>
+                    )}
+
                     <span className="text-3xl">📅</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Agenda
                     </p>
                   </button>
 
+                  {/* Liens */}
                   <button
                     type="button"
-                    onClick={() => setActiveApp('links')}
-                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                    onClick={() => void openNotifiedApp('links')}
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
+                    {notificationCounts.links > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.links}
+                      </span>
+                    )}
+
                     <span className="text-3xl">💛</span>
+
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Liens
                     </p>
                   </button>
+
                 </div>
               </div>
             </div>
@@ -909,6 +1136,7 @@ export default function PlayerSpace({ playerId }: Props) {
         )}
       </div>
 
+      {/* Fenêtre de recadrage de la photo */}
       {cropFile && cropUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-4">
           <div className="my-auto w-full max-w-lg rounded-3xl border border-gold-500/30 bg-ink-900 p-6 shadow-2xl">
@@ -916,9 +1144,11 @@ export default function PlayerSpace({ playerId }: Props) {
               <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
                 Sterling Campus
               </p>
+
               <h2 className="mt-3 text-2xl font-semibold text-bone-100">
                 Recadrer la photo
               </h2>
+
               <p className="mt-2 text-sm text-bone-400">
                 Utilise les flèches pour déplacer la photo et les boutons pour
                 zoomer.
@@ -951,6 +1181,7 @@ export default function PlayerSpace({ playerId }: Props) {
                     userSelect: 'none',
                   }}
                 />
+
                 <div className="pointer-events-none absolute inset-0 border border-white/40" />
               </div>
             </div>
@@ -962,6 +1193,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
               <div className="grid grid-cols-3 gap-2">
                 <div />
+
                 <button
                   type="button"
                   onClick={() => moveCrop('up')}
@@ -971,6 +1203,7 @@ export default function PlayerSpace({ playerId }: Props) {
                 >
                   ↑
                 </button>
+
                 <div />
 
                 <button
@@ -1010,6 +1243,7 @@ export default function PlayerSpace({ playerId }: Props) {
                 </button>
 
                 <div />
+
                 <button
                   type="button"
                   onClick={() => moveCrop('down')}
@@ -1022,6 +1256,7 @@ export default function PlayerSpace({ playerId }: Props) {
                 >
                   ↓
                 </button>
+
                 <div />
               </div>
             </div>
