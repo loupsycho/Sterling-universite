@@ -6,6 +6,7 @@ import MessagesApp from '@/components/MessagesApp';
 import InstagramApp from '@/components/InstagramApp';
 import SecretScoop from '@/components/SecretScoop';
 import AgendaApp from '@/components/AgendaApp';
+import LinksApp from '@/components/LinksApp';
 
 type Character = {
   id: string;
@@ -28,7 +29,8 @@ type PhoneApp =
   | 'messages'
   | 'instagram'
   | 'scoop'
-  | 'agenda';
+  | 'agenda'
+  | 'links';
 
 type SavedSession = {
   characterId: string | null;
@@ -64,7 +66,8 @@ function getSavedSession(playerId: string): SavedSession {
         parsed.activeApp === 'messages' ||
         parsed.activeApp === 'instagram' ||
         parsed.activeApp === 'scoop' ||
-        parsed.activeApp === 'agenda'
+        parsed.activeApp === 'agenda' ||
+        parsed.activeApp === 'links'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
@@ -101,16 +104,13 @@ export default function PlayerSpace({ playerId }: Props) {
     useState<string | null>(
       () => getSavedSession(playerId).characterId
     );
-
   const [activeApp, setActiveApp] = useState<PhoneApp>(
     () => getSavedSession(playerId).activeApp
   );
-
   const [messageContactId, setMessageContactId] =
     useState<string | null>(
       () => getSavedSession(playerId).messageContactId
     );
-
   const [sessionRestored, setSessionRestored] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -120,13 +120,11 @@ export default function PlayerSpace({ playerId }: Props) {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropUrl, setCropUrl] = useState('');
   const [cropZoom, setCropZoom] = useState(1);
-
   const [cropPosition, setCropPosition] =
     useState<CropPosition>({
       x: 0,
       y: 0,
     });
-
   const [cropImageSize, setCropImageSize] = useState({
     width: 0,
     height: 0,
@@ -149,7 +147,6 @@ export default function PlayerSpace({ playerId }: Props) {
 
   const renderedWidth =
     cropImageSize.width * baseScale * cropZoom;
-
   const renderedHeight =
     cropImageSize.height * baseScale * cropZoom;
 
@@ -590,18 +587,14 @@ export default function PlayerSpace({ playerId }: Props) {
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
-
           <h1 className="mt-4 text-3xl font-semibold text-bone-100">
             Mon espace joueur
           </h1>
-
           <div className="mt-10 rounded-2xl border border-gold-500/20 bg-ink-900/60 p-8">
             <span className="text-4xl">♙</span>
-
             <h2 className="mt-5 text-xl font-semibold text-bone-100">
               Aucun personnage pour le moment
             </h2>
-
             <p className="mt-3 text-sm text-bone-300">
               L'administration ajoutera tes personnages après validation de
               leurs fiches sur Discord.
@@ -619,15 +612,12 @@ export default function PlayerSpace({ playerId }: Props) {
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
-
           <h1 className="mt-4 text-3xl font-semibold text-bone-100">
             Mon espace joueur
           </h1>
-
           <p className="mt-3 text-sm text-bone-300">
             Sélectionne un personnage pour accéder à son téléphone personnel.
           </p>
-
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {characters.map((character) => (
               <button
@@ -654,29 +644,24 @@ export default function PlayerSpace({ playerId }: Props) {
                       <span className="text-6xl text-gold-300/60">
                         ♙
                       </span>
-
                       <p className="mt-3 text-xs uppercase tracking-widest text-bone-400">
                         Portrait à ajouter
                       </p>
                     </div>
                   )}
                 </div>
-
                 <div className="p-5">
                   <p className="text-xs uppercase tracking-[0.2em] text-gold-300">
                     {character.character_type || 'Personnage'}
                   </p>
-
                   <h2 className="mt-2 text-xl font-semibold text-bone-100">
                     {character.first_name} {character.name}
                   </h2>
-
                   {character.age !== null && (
                     <p className="mt-3 text-sm text-bone-300">
                       {character.age} ans
                     </p>
                   )}
-
                   <p className="mt-5 border-t border-white/10 pt-4 text-center text-sm text-gold-300">
                     Ouvrir le téléphone →
                   </p>
@@ -729,7 +714,6 @@ export default function PlayerSpace({ playerId }: Props) {
               <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
                 {selectedCharacter.character_type || 'Personnage'}
               </p>
-
               <h1 className="mt-3 text-2xl font-semibold text-bone-100">
                 {selectedCharacter.first_name} {selectedCharacter.name}
               </h1>
@@ -738,13 +722,11 @@ export default function PlayerSpace({ playerId }: Props) {
                 {selectedCharacter.age !== null && (
                   <p>Âge : {selectedCharacter.age} ans</p>
                 )}
-
                 {selectedCharacter.course_position && (
                   <p>
                     Poste ou cursus : {selectedCharacter.course_position}
                   </p>
                 )}
-
                 {selectedCharacter.housing && (
                   <p>Logement : {selectedCharacter.housing}</p>
                 )}
@@ -754,7 +736,6 @@ export default function PlayerSpace({ playerId }: Props) {
                 <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
                   Photo de profil
                 </p>
-
                 <p className="mt-2 text-sm text-bone-400">
                   Choisis une photo depuis ton appareil. Tu pourras la recadrer
                   avant de l'enregistrer.
@@ -766,7 +747,6 @@ export default function PlayerSpace({ playerId }: Props) {
                     : selectedCharacter.avatar_url
                       ? '📷 Changer la photo'
                       : '📷 Ajouter une photo'}
-
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -868,6 +848,17 @@ export default function PlayerSpace({ playerId }: Props) {
                       Agenda
                     </p>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveApp('links')}
+                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
+                    <span className="text-3xl">💛</span>
+                    <p className="mt-3 text-sm font-medium text-bone-100">
+                      Liens
+                    </p>
+                  </button>
                 </div>
               </div>
             </div>
@@ -909,6 +900,13 @@ export default function PlayerSpace({ playerId }: Props) {
             characterId={selectedCharacter.id}
           />
         )}
+
+        {activeApp === 'links' && (
+          <LinksApp
+            key={selectedCharacter.id}
+            characterId={selectedCharacter.id}
+          />
+        )}
       </div>
 
       {cropFile && cropUrl && (
@@ -918,11 +916,9 @@ export default function PlayerSpace({ playerId }: Props) {
               <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
                 Sterling Campus
               </p>
-
               <h2 className="mt-3 text-2xl font-semibold text-bone-100">
                 Recadrer la photo
               </h2>
-
               <p className="mt-2 text-sm text-bone-400">
                 Utilise les flèches pour déplacer la photo et les boutons pour
                 zoomer.
@@ -955,7 +951,6 @@ export default function PlayerSpace({ playerId }: Props) {
                     userSelect: 'none',
                   }}
                 />
-
                 <div className="pointer-events-none absolute inset-0 border border-white/40" />
               </div>
             </div>
@@ -967,7 +962,6 @@ export default function PlayerSpace({ playerId }: Props) {
 
               <div className="grid grid-cols-3 gap-2">
                 <div />
-
                 <button
                   type="button"
                   onClick={() => moveCrop('up')}
@@ -977,7 +971,6 @@ export default function PlayerSpace({ playerId }: Props) {
                 >
                   ↑
                 </button>
-
                 <div />
 
                 <button
@@ -1017,7 +1010,6 @@ export default function PlayerSpace({ playerId }: Props) {
                 </button>
 
                 <div />
-
                 <button
                   type="button"
                   onClick={() => moveCrop('down')}
@@ -1030,7 +1022,6 @@ export default function PlayerSpace({ playerId }: Props) {
                 >
                   ↓
                 </button>
-
                 <div />
               </div>
             </div>
