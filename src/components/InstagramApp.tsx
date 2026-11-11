@@ -421,7 +421,7 @@ export default function InstagramApp({ characterId }: Props) {
     if (isVideo) {
       return (
         <video
-          src={post.image_url}
+          src={getDiscordCompatibleImageUrl(post.image_url)}
           controls
           playsInline
           preload="metadata"
@@ -432,7 +432,7 @@ export default function InstagramApp({ characterId }: Props) {
 
     return (
       <img
-        src={post.image_url}
+        src={getDiscordCompatibleImageUrl(post.image_url)}
         alt="Publication Instagram"
         loading="lazy"
         className="max-h-[650px] w-full bg-ink-950 object-contain"
