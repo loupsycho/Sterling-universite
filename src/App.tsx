@@ -743,15 +743,21 @@ export default function App() {
                 </label>
 
                 <label className="text-sm text-bone-300 sm:col-span-2">
-                  Logement
-                  <input
+                  Lieu de vie
+                  <select
                     value={form.housing}
                     onChange={(event) =>
                       handleFormChange('housing', event.target.value)
                     }
-                    placeholder="Résidence, fraternité, sororité..."
                     className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
-                  />
+                  >
+                    <option value="">Choisir un lieu de vie</option>
+                    <option value="Immeuble étudiant">Immeuble étudiant</option>
+                    <option value="Résidence du personnel">Résidence du personnel</option>
+                    <option value="Omega Crow">Omega Crow</option>
+                    <option value="Kappa Gold">Kappa Gold</option>
+                    <option value="Alpha King">Alpha King</option>
+                  </select>
                 </label>
               </div>
 
