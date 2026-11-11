@@ -20,10 +20,12 @@ const highlights = [
 export default function HomePage() {
   const { status, retry } = useDiscordActivity();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   const handleDiscordLogin = async () => {
     if (isSigningIn) return;
     setIsSigningIn(true);
+    setLoginError('');
 
     try {
       if (isRunningInsideDiscord()) {
@@ -60,7 +62,8 @@ export default function HomePage() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Une erreur inconnue est survenue.';
-      alert('Erreur de connexion : ' + message);
+      console.error('Erreur de connexion Discord :', error);
+      setLoginError(message);
       setIsSigningIn(false);
     }
   };
@@ -88,6 +91,11 @@ export default function HomePage() {
             {isSigningIn ? 'Connexion...' : 'Se connecter avec Discord'}
           </Button>
           <DiscordStatusNotice status={status} onRetry={retry} />
+          {loginError && (
+            <p role="alert" className="w-full rounded-xl border border-red-400/30 bg-red-950/50 px-4 py-3 text-left text-sm leading-relaxed text-red-200">
+              Erreur de connexion : {loginError}
+            </p>
+          )}
         </div>
         <ul className="mt-14 grid w-full max-w-2xl animate-fade-up grid-cols-1 gap-3 sm:grid-cols-3" style={{ animationDelay: '0.7s' }}>
           {highlights.map(({ icon: Icon, label }) => (
