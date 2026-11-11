@@ -44,14 +44,30 @@ function getSavedSession(playerId: string): SavedSession {
     return {
       characterId: parsed.characterId || null,
       activeApp:
-        parsed.activeApp === 'contacts' ||
-        parsed.activeApp === 'messages'
+        parsed.activeApp === 'contacts' || parsed.activeApp === 'messages'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
     };
   } catch {
     return emptySession;
+  }
+}
+
+function getAvatarStoragePath(url: string | null) {
+  if (!url) return null;
+
+  const marker = '/storage/v1/object/public/character-avatars/';
+  const index = url.indexOf(marker);
+
+  if (index === -1) return null;
+
+  try {
+    return decodeURIComponent(
+      url.slice(index + marker.length).split('?')[0]
+    );
+  } catch {
+    return null;
   }
 }
 
@@ -69,6 +85,9 @@ export default function PlayerSpace({ playerId }: Props) {
   const [sessionRestored, setSessionRestored] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const [avatarMessage, setAvatarMessage] = useState('');
 
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ||
@@ -148,6 +167,138 @@ export default function PlayerSpace({ playerId }: Props) {
     sessionRestored,
   ]);
 
+  async function handleAvatarUpload(file: File) {
+    if (!selectedCharacter) return;
+
+    setAvatarError('');
+    setAvatarMessage('');
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!allowedTypes.includes(file.type)) {
+      setAvatarError('Choisis une image au format JPG, PNG ou WebP.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('La photo ne doit pas dépasser 5 Mo.');
+      return;
+    }
+
+    setAvatarLoading(true);
+
+    const oldAvatarPath = getAvatarStoragePath(
+      selectedCharacter.avatar_url
+    );
+
+    const safeFileName = file.name
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9.-]/g, '_');
+
+    const filePath = `${selectedCharacter.id}/${crypto.randomUUID()}-${safeFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('character-avatars')
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error(uploadError);
+      setAvatarError("La photo n'a pas pu être envoyée. Réessaie.");
+      setAvatarLoading(false);
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from('character-avatars')
+      .getPublicUrl(filePath);
+
+    const { error: updateError } = await supabase
+      .from('characters')
+      .update({ avatar_url: data.publicUrl })
+      .eq('id', selectedCharacter.id)
+      .eq('player_id', playerId);
+
+    if (updateError) {
+      console.error(updateError);
+
+      await supabase.storage
+        .from('character-avatars')
+        .remove([filePath]);
+
+      setAvatarError("La photo a été envoyée, mais n'a pas pu être enregistrée.");
+      setAvatarLoading(false);
+      return;
+    }
+
+    setCharacters((current) =>
+      current.map((character) =>
+        character.id === selectedCharacter.id
+          ? { ...character, avatar_url: data.publicUrl }
+          : character
+      )
+    );
+
+    if (oldAvatarPath) {
+      const { error: deleteError } = await supabase.storage
+        .from('character-avatars')
+        .remove([oldAvatarPath]);
+
+      if (deleteError) console.error(deleteError);
+    }
+
+    setAvatarMessage('Photo de profil mise à jour !');
+    setAvatarLoading(false);
+  }
+
+  async function handleAvatarDelete() {
+    if (!selectedCharacter?.avatar_url) return;
+
+    if (!window.confirm('Veux-tu vraiment supprimer cette photo ?')) return;
+
+    setAvatarLoading(true);
+    setAvatarError('');
+    setAvatarMessage('');
+
+    const oldAvatarPath = getAvatarStoragePath(
+      selectedCharacter.avatar_url
+    );
+
+    const { error } = await supabase
+      .from('characters')
+      .update({ avatar_url: null })
+      .eq('id', selectedCharacter.id)
+      .eq('player_id', playerId);
+
+    if (error) {
+      console.error(error);
+      setAvatarError('Impossible de supprimer la photo.');
+      setAvatarLoading(false);
+      return;
+    }
+
+    setCharacters((current) =>
+      current.map((character) =>
+        character.id === selectedCharacter.id
+          ? { ...character, avatar_url: null }
+          : character
+      )
+    );
+
+    if (oldAvatarPath) {
+      const { error: deleteError } = await supabase.storage
+        .from('character-avatars')
+        .remove([oldAvatarPath]);
+
+      if (deleteError) console.error(deleteError);
+    }
+
+    setAvatarMessage('Photo supprimée.');
+    setAvatarLoading(false);
+  }
+
   function openMessages(contactId?: string) {
     setMessageContactId(contactId || null);
     setActiveApp('messages');
@@ -162,6 +313,8 @@ export default function PlayerSpace({ playerId }: Props) {
     setSelectedCharacterId(null);
     setActiveApp('home');
     setMessageContactId(null);
+    setAvatarError('');
+    setAvatarMessage('');
   }
 
   if (loading) {
@@ -236,6 +389,8 @@ export default function PlayerSpace({ playerId }: Props) {
                   setSelectedCharacterId(character.id);
                   setActiveApp('home');
                   setMessageContactId(null);
+                  setAvatarError('');
+                  setAvatarMessage('');
                 }}
                 className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/70 text-left transition hover:border-gold-400/60"
               >
@@ -335,6 +490,62 @@ export default function PlayerSpace({ playerId }: Props) {
                 {selectedCharacter.housing && (
                   <p>Logement : {selectedCharacter.housing}</p>
                 )}
+              </div>
+
+              <div className="mt-8 border-t border-white/10 pt-6">
+                <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
+                  Photo de profil
+                </p>
+
+                <p className="mt-2 text-sm text-bone-400">
+                  Choisis une photo depuis ton appareil. Elle sera également
+                  utilisée dans tes Contacts et tes Messages.
+                </p>
+
+                <label className="mt-5 inline-flex cursor-pointer items-center justify-center rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400">
+                  {avatarLoading
+                    ? 'Enregistrement...'
+                    : selectedCharacter.avatar_url
+                      ? '📷 Changer la photo'
+                      : '📷 Ajouter une photo'}
+
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={avatarLoading}
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) handleAvatarUpload(file);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+
+                {selectedCharacter.avatar_url && (
+                  <button
+                    type="button"
+                    disabled={avatarLoading}
+                    onClick={handleAvatarDelete}
+                    className="ml-3 mt-5 rounded-xl border border-red-500/40 px-5 py-3 text-sm text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    Supprimer la photo
+                  </button>
+                )}
+
+                {avatarError && (
+                  <p className="mt-4 text-sm text-red-300">{avatarError}</p>
+                )}
+
+                {avatarMessage && (
+                  <p className="mt-4 text-sm text-green-300">
+                    {avatarMessage}
+                  </p>
+                )}
+
+                <p className="mt-3 text-xs text-bone-500">
+                  Formats acceptés : JPG, PNG et WebP. Taille maximale : 5 Mo.
+                </p>
               </div>
 
               <div className="mt-8 border-t border-white/10 pt-6">
