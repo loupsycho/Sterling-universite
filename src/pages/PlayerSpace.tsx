@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import ContactsApp from '@/components/ContactsApp';
 import MessagesApp from '@/components/MessagesApp';
+import InstagramApp from '@/components/InstagramApp';
 
 type Character = {
   id: string;
@@ -19,7 +20,7 @@ type Props = {
   playerId: string;
 };
 
-type PhoneApp = 'home' | 'contacts' | 'messages';
+type PhoneApp = 'home' | 'contacts' | 'messages' | 'instagram';
 
 type SavedSession = {
   characterId: string | null;
@@ -49,7 +50,9 @@ function getSavedSession(playerId: string): SavedSession {
     return {
       characterId: parsed.characterId || null,
       activeApp:
-        parsed.activeApp === 'contacts' || parsed.activeApp === 'messages'
+        parsed.activeApp === 'contacts' ||
+        parsed.activeApp === 'messages' ||
+        parsed.activeApp === 'instagram'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
@@ -746,6 +749,17 @@ export default function PlayerSpace({ playerId }: Props) {
                       Messages
                     </p>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveApp('instagram')}
+                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
+                    <span className="text-3xl">📸</span>
+                    <p className="mt-3 text-sm font-medium text-bone-100">
+                      Instagram
+                    </p>
+                  </button>
                 </div>
               </div>
             </div>
@@ -764,6 +778,13 @@ export default function PlayerSpace({ playerId }: Props) {
             key={`${selectedCharacter.id}-${messageContactId || 'all'}`}
             characterId={selectedCharacter.id}
             initialContactId={messageContactId}
+          />
+        )}
+
+        {activeApp === 'instagram' && (
+          <InstagramApp
+            key={selectedCharacter.id}
+            characterId={selectedCharacter.id}
           />
         )}
       </div>
