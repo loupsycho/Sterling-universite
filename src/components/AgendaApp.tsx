@@ -101,7 +101,6 @@ function getScopes(character: Character): ScopeOption[] {
   const responsibility = normalize(character.university_responsibility);
   const coursePosition = normalize(character.course_position);
 
-  // Responsables des maisons : Chef ou Sous-chef.
   if (
     responsibility.includes('chef') ||
     responsibility.includes('sous-chef')
@@ -117,7 +116,6 @@ function getScopes(character: Character): ScopeOption[] {
     });
   }
 
-  // Responsable d'une activité : Chef de l'activité concernée.
   if (
     responsibility.includes('chef') &&
     character.extracurricular_activity?.trim()
@@ -128,7 +126,6 @@ function getScopes(character: Character): ScopeOption[] {
     });
   }
 
-  // Professeur : responsable du programme/cours qui lui est attribué.
   if (
     (coursePosition.includes('professeur') ||
       coursePosition.includes('enseignant')) &&
@@ -151,9 +148,12 @@ export default function AgendaApp({ characterId }: Props) {
   const [characters, setCharacters] = useState<Record<string, Character>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
   const [today, setToday] = useState(() => new Date());
   const [month, setMonth] = useState(() => new Date());
-  const [selectedDay, setSelectedDay] = useState(() => localDateKey(new Date()));
+  const [selectedDay, setSelectedDay] = useState(() =>
+    localDateKey(new Date())
+  );
 
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -161,7 +161,9 @@ export default function AgendaApp({ characterId }: Props) {
   const [eventScope, setEventScope] = useState('');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
-  const [eventStart, setEventStart] = useState(toLocalInput(new Date(Date.now() + 3600000)));
+  const [eventStart, setEventStart] = useState(
+    toLocalInput(new Date(Date.now() + 3600000))
+  );
   const [eventEnd, setEventEnd] = useState('');
   const [eventLocation, setEventLocation] = useState('');
   const [savingEvent, setSavingEvent] = useState(false);
@@ -178,10 +180,8 @@ export default function AgendaApp({ characterId }: Props) {
     [character]
   );
 
-  const scopesForType = availableScopes.filter((scope) => scope.type === eventType);
-
-  const selectedEvents = events.filter(
-    (event) => localDateKey(event.starts_at) === selectedDay
+  const scopesForType = availableScopes.filter(
+    (scope) => scope.type === eventType
   );
 
   const myResponses = responses.filter(
@@ -229,14 +229,17 @@ export default function AgendaApp({ characterId }: Props) {
         )
         .eq('id', characterId)
         .single(),
+
       supabase
         .from('agenda_events')
         .select('*')
         .order('starts_at', { ascending: true }),
+
       supabase
         .from('agenda_proposals')
         .select('*')
         .order('proposed_at', { ascending: true }),
+
       supabase
         .from('agenda_proposal_responses')
         .select('*')
@@ -255,15 +258,16 @@ export default function AgendaApp({ characterId }: Props) {
       return;
     }
 
-    const loadedCharacter = characterResult.data as Character;
     const loadedProposals = (proposalsResult.data || []) as Proposal[];
 
-    setCharacter(loadedCharacter);
+    setCharacter(characterResult.data as Character);
     setEvents((eventsResult.data || []) as AgendaEvent[]);
     setProposals(loadedProposals);
     setResponses((responsesResult.data || []) as ProposalResponse[]);
 
-    const ids = [...new Set(loadedProposals.map((proposal) => proposal.character_id))];
+    const ids = [
+      ...new Set(loadedProposals.map((proposal) => proposal.character_id)),
+    ];
 
     if (ids.length > 0) {
       const peopleResult = await supabase
@@ -286,8 +290,8 @@ export default function AgendaApp({ characterId }: Props) {
   }
 
   useEffect(() => {
+    setLoading(true);
     loadAgenda();
-    // Le changement de personnage recharge son agenda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [characterId]);
 
@@ -295,6 +299,12 @@ export default function AgendaApp({ characterId }: Props) {
     const timer = window.setInterval(() => {
       const current = new Date();
       setToday(current);
+
+      const currentKey = localDateKey(current);
+      setSelectedDay((previous) =>
+        previous === localDateKey(today) ? currentKey : previous
+      );
+
       setMonth((previous) => {
         if (
           previous.getFullYear() !== current.getFullYear() ||
@@ -307,11 +317,15 @@ export default function AgendaApp({ characterId }: Props) {
     }, 30000);
 
     return () => window.clearInterval(timer);
-  }, []);
+  }, [today]);
 
   useEffect(() => {
-    const validScope = scopesForType.some((scope) => scope.name === eventScope);
-    if (!validScope) setEventScope(scopesForType[0]?.name || '');
+    const validScope = scopesForType.some(
+      (scope) => scope.name === eventScope
+    );
+    if (!validScope) {
+      setEventScope(scopesForType[0]?.name || '');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventType, character]);
 
@@ -341,6 +355,7 @@ export default function AgendaApp({ characterId }: Props) {
 
   async function saveEvent(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!character || !eventScope || !eventTitle.trim() || !eventStart) return;
 
     if (eventEnd && new Date(eventEnd) < new Date(eventStart)) {
@@ -451,11 +466,14 @@ export default function AgendaApp({ characterId }: Props) {
   }
 
   function changeMonth(amount: number) {
-    setMonth((previous) => new Date(
-      previous.getFullYear(),
-      previous.getMonth() + amount,
-      1
-    ));
+    setMonth(
+      (previous) =>
+        new Date(
+          previous.getFullYear(),
+          previous.getMonth() + amount,
+          1
+        )
+    );
   }
 
   function openNewEventForm() {
@@ -487,84 +505,198 @@ export default function AgendaApp({ characterId }: Props) {
         .agenda-app * { box-sizing: border-box; }
         .agenda-header { text-align: center; margin-bottom: 22px; }
         .agenda-header h2 {
-          color: #d7b56d; letter-spacing: 4px; text-transform: uppercase;
-          font-size: 23px; margin: 0 0 8px;
+          color: #d7b56d;
+          letter-spacing: 4px;
+          text-transform: uppercase;
+          font-size: 23px;
+          margin: 0 0 8px;
         }
         .agenda-reminder {
-          border: 1px solid #806637; background: #211c13; color: #f1d99e;
-          padding: 12px; border-radius: 8px; font-size: 12px;
-          line-height: 1.6; text-align: center; margin-bottom: 20px;
+          border: 1px solid #806637;
+          background: #211c13;
+          color: #f1d99e;
+          padding: 12px;
+          border-radius: 8px;
+          font-size: 12px;
+          line-height: 1.6;
+          text-align: center;
+          margin-bottom: 20px;
         }
         .agenda-panel {
-          background: #191919; border: 1px solid #393126;
-          border-radius: 10px; padding: 16px; margin-bottom: 18px;
+          background: #191919;
+          border: 1px solid #393126;
+          border-radius: 10px;
+          padding: 16px;
+          margin-bottom: 18px;
         }
         .agenda-panel h3 {
-          color: #d7b56d; text-transform: uppercase; letter-spacing: 2px;
-          font-size: 13px; margin: 0 0 14px;
+          color: #d7b56d;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+          font-size: 13px;
+          margin: 0 0 14px;
         }
         .agenda-month-bar {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 10px; margin-bottom: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 14px;
         }
         .agenda-month-bar strong {
-          color: #e7d3a5; text-transform: capitalize; font-size: 15px;
+          color: #e7d3a5;
+          text-transform: capitalize;
+          font-size: 15px;
         }
         .agenda-app button {
-          cursor: pointer; border: 1px solid #806637; color: #e8d4a4;
-          background: #292216; border-radius: 6px; padding: 8px 11px;
+          cursor: pointer;
+          border: 1px solid #806637;
+          color: #e8d4a4;
+          background: #292216;
+          border-radius: 6px;
+          padding: 8px 11px;
           font-size: 12px;
         }
         .agenda-app button:hover { background: #45371f; }
+        .agenda-app button:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
         .agenda-calendar {
-          display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
           gap: 5px;
         }
         .agenda-weekday {
-          color: #9e8a64; text-align: center; font-size: 10px;
-          padding: 5px 0; text-transform: uppercase;
+          color: #9e8a64;
+          text-align: center;
+          font-size: 10px;
+          padding: 5px 0;
+          text-transform: uppercase;
         }
         .agenda-day {
-          min-height: 43px; padding: 7px 3px !important;
-          border-color: #393126 !important; background: #111 !important;
-          display: flex; flex-direction: column; align-items: center;
-          justify-content: flex-start; gap: 4px;
+          min-height: 43px;
+          padding: 7px 3px !important;
+          border-color: #393126 !important;
+          background: #111 !important;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 4px;
         }
-        .agenda-day.muted { opacity: .22; cursor: default; }
-        .agenda-day.today { border-color: #d7b56d !important; color: #f3d99d; }
+        .agenda-day.today {
+          border-color: #d7b56d !important;
+          color: #f3d99d;
+        }
         .agenda-day.selected { background: #49391f !important; }
-        .agenda-day-dot { width: 5px; height: 5px; border-radius: 50%; background: #d7b56d; }
-        .agenda-list { display: flex; flex-direction: column; gap: 10px; }
+        .agenda-day-dot {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: #d7b56d;
+        }
+        .agenda-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
         .agenda-event, .agenda-proposal {
-          background: #111; border: 1px solid #393126; border-radius: 8px;
+          background: #111;
+          border: 1px solid #393126;
+          border-radius: 8px;
           padding: 12px;
         }
-        .agenda-event-title { color: #e8d4a4; font-weight: 700; margin-bottom: 5px; }
-        .agenda-meta { color: #a99a7c; font-size: 11px; line-height: 1.6; }
-        .agenda-description { color: #d0cbc1; font-size: 12px; margin-top: 8px; white-space: pre-wrap; }
-        .agenda-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
-        .agenda-form { display: flex; flex-direction: column; gap: 10px; }
-        .agenda-form label { color: #c6ad78; font-size: 11px; }
-        .agenda-form input, .agenda-form textarea, .agenda-form select {
-          width: 100%; background: #0e0e0e; color: #eee9df;
-          border: 1px solid #51432b; border-radius: 6px; padding: 10px;
-          margin-top: 5px; font: inherit; font-size: 12px;
+        .agenda-event-title {
+          color: #e8d4a4;
+          font-weight: 700;
+          margin-bottom: 5px;
         }
-        .agenda-form textarea { min-height: 75px; resize: vertical; }
-        .agenda-form button.primary { background: #806637; color: #fff8e8; }
-        .agenda-empty { color: #928a7d; font-size: 12px; text-align: center; padding: 14px 4px; }
+        .agenda-meta {
+          color: #a99a7c;
+          font-size: 11px;
+          line-height: 1.6;
+        }
+        .agenda-description {
+          color: #d0cbc1;
+          font-size: 12px;
+          margin-top: 8px;
+          white-space: pre-wrap;
+        }
+        .agenda-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin-top: 10px;
+        }
+        .agenda-form {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .agenda-form label {
+          color: #c6ad78;
+          font-size: 11px;
+        }
+        .agenda-form input,
+        .agenda-form textarea,
+        .agenda-form select {
+          width: 100%;
+          background: #0e0e0e;
+          color: #eee9df;
+          border: 1px solid #51432b;
+          border-radius: 6px;
+          padding: 10px;
+          margin-top: 5px;
+          font: inherit;
+          font-size: 12px;
+        }
+        .agenda-form textarea {
+          min-height: 75px;
+          resize: vertical;
+        }
+        .agenda-form button.primary {
+          background: #806637;
+          color: #fff8e8;
+        }
+        .agenda-empty {
+          color: #928a7d;
+          font-size: 12px;
+          text-align: center;
+          padding: 14px 4px;
+        }
         .agenda-error {
-          color: #ffb4a9; background: #321c1a; border: 1px solid #75413b;
-          padding: 10px; border-radius: 7px; font-size: 12px; margin-bottom: 12px;
+          color: #ffb4a9;
+          background: #321c1a;
+          border: 1px solid #75413b;
+          padding: 10px;
+          border-radius: 7px;
+          font-size: 12px;
+          margin-bottom: 12px;
         }
-        .agenda-loading { color: #d7b56d; padding: 30px; text-align: center; }
-        .agenda-loading-icon { display: block; font-size: 25px; margin-bottom: 8px; }
+        .agenda-loading {
+          color: #d7b56d;
+          padding: 30px;
+          text-align: center;
+        }
+        .agenda-loading-icon {
+          display: block;
+          font-size: 25px;
+          margin-bottom: 8px;
+        }
         .agenda-section-heading {
-          display: flex; justify-content: space-between; align-items: center;
-          gap: 10px; margin-bottom: 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 12px;
         }
         .agenda-section-heading h3 { margin: 0; }
-        .agenda-response { color: #cdbb91; font-size: 11px; margin-top: 8px; }
+        .agenda-response {
+          color: #cdbb91;
+          font-size: 11px;
+          margin-top: 8px;
+        }
         @media (max-width: 420px) {
           .agenda-app { padding: 12px; }
           .agenda-panel { padding: 12px; }
@@ -580,7 +712,9 @@ export default function AgendaApp({ characterId }: Props) {
       </header>
 
       <div className="agenda-reminder">
-        <strong>LE CALENDRIER EST SYNCHRONISÉ AVEC LES JOURS RÉELS.</strong>
+        <strong>
+          LE CALENDRIER EST SYNCHRONISÉ AVEC LES JOURS RÉELS.
+        </strong>
         <br />
         Merci d’en tenir compte lorsque vous créez des événements.
       </div>
@@ -591,7 +725,10 @@ export default function AgendaApp({ characterId }: Props) {
         <div className="agenda-month-bar">
           <button type="button" onClick={() => changeMonth(-1)}>‹</button>
           <strong>
-            {month.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+            {month.toLocaleDateString('fr-FR', {
+              month: 'long',
+              year: 'numeric',
+            })}
           </strong>
           <button type="button" onClick={() => changeMonth(1)}>›</button>
         </div>
@@ -605,7 +742,9 @@ export default function AgendaApp({ characterId }: Props) {
             if (!day) return <div key={`empty-${index}`} />;
 
             const key = localDateKey(day);
-            const hasEvent = events.some((event) => localDateKey(event.starts_at) === key);
+            const hasEvent = events.some(
+              (event) => localDateKey(event.starts_at) === key
+            );
             const hasAcceptedProposal = acceptedProposals.some(
               (proposal) => localDateKey(proposal.proposed_at) === key
             );
@@ -620,7 +759,9 @@ export default function AgendaApp({ characterId }: Props) {
                 onClick={() => setSelectedDay(key)}
               >
                 <span>{day.getDate()}</span>
-                {(hasEvent || hasAcceptedProposal) && <span className="agenda-day-dot" />}
+                {(hasEvent || hasAcceptedProposal) && (
+                  <span className="agenda-day-dot" />
+                )}
               </button>
             );
           })}
@@ -630,9 +771,9 @@ export default function AgendaApp({ characterId }: Props) {
           <button
             type="button"
             onClick={() => {
-              const key = localDateKey(new Date());
-              setSelectedDay(key);
-              setMonth(new Date());
+              const current = new Date();
+              setSelectedDay(localDateKey(current));
+              setMonth(current);
             }}
           >
             Aujourd’hui
@@ -644,59 +785,89 @@ export default function AgendaApp({ characterId }: Props) {
         <div className="agenda-section-heading">
           <h3>{formatDate(`${selectedDay}T12:00:00`)}</h3>
           {availableScopes.length > 0 && (
-            <button type="button" onClick={openNewEventForm}>＋ Événement</button>
+            <button type="button" onClick={openNewEventForm}>
+              ＋ Événement
+            </button>
           )}
         </div>
 
-        {selectedEvents.length === 0 &&
+        {events.filter(
+          (event) => localDateKey(event.starts_at) === selectedDay
+        ).length === 0 &&
           acceptedProposals.filter(
             (proposal) => localDateKey(proposal.proposed_at) === selectedDay
           ).length === 0 && (
-            <div className="agenda-empty">Aucun événement prévu ce jour-là.</div>
+            <div className="agenda-empty">
+              Aucun événement prévu ce jour-là.
+            </div>
           )}
 
         <div className="agenda-list">
-          {selectedEvents.map((event) => (
-            <article className="agenda-event" key={event.id}>
-              <div className="agenda-event-title">{event.title}</div>
-              <div className="agenda-meta">
-                {formatTime(event.starts_at)}
-                {event.ends_at ? ` – ${formatTime(event.ends_at)}` : ''}
-                {' · '}
-                {event.scope_name}
-                {' · '}
-                {event.event_type === 'house'
-                  ? 'Maison'
-                  : event.event_type === 'activity'
-                    ? 'Activité'
-                    : 'Cours'}
-                {event.location ? ` · ${event.location}` : ''}
-              </div>
-              {event.description && (
-                <div className="agenda-description">{event.description}</div>
-              )}
-              {availableScopes.some(
-                (scope) =>
-                  scope.type === event.event_type && scope.name === event.scope_name
-              ) && (
-                <div className="agenda-actions">
-                  <button type="button" onClick={() => startEditing(event)}>Modifier</button>
-                  <button type="button" onClick={() => deleteEvent(event.id)}>Supprimer</button>
+          {events
+            .filter((event) => localDateKey(event.starts_at) === selectedDay)
+            .map((event) => (
+              <article className="agenda-event" key={event.id}>
+                <div className="agenda-event-title">{event.title}</div>
+                <div className="agenda-meta">
+                  {formatTime(event.starts_at)}
+                  {event.ends_at ? ` – ${formatTime(event.ends_at)}` : ''}
+                  {' · '}
+                  {event.scope_name}
+                  {' · '}
+                  {event.event_type === 'house'
+                    ? 'Maison'
+                    : event.event_type === 'activity'
+                      ? 'Activité'
+                      : 'Cours'}
+                  {event.location ? ` · ${event.location}` : ''}
                 </div>
-              )}
-            </article>
-          ))}
+                {event.description && (
+                  <div className="agenda-description">
+                    {event.description}
+                  </div>
+                )}
+                {availableScopes.some(
+                  (scope) =>
+                    scope.type === event.event_type &&
+                    scope.name === event.scope_name
+                ) && (
+                  <div className="agenda-actions">
+                    <button
+                      type="button"
+                      onClick={() => startEditing(event)}
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteEvent(event.id)}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                )}
+              </article>
+            ))}
 
           {acceptedProposals
-            .filter((proposal) => localDateKey(proposal.proposed_at) === selectedDay)
+            .filter(
+              (proposal) => localDateKey(proposal.proposed_at) === selectedDay
+            )
             .map((proposal) => (
-              <article className="agenda-event" key={`proposal-${proposal.id}`}>
-                <div className="agenda-event-title">{proposal.activity}</div>
+              <article
+                className="agenda-event"
+                key={`proposal-${proposal.id}`}
+              >
+                <div className="agenda-event-title">
+                  {proposal.activity}
+                </div>
                 <div className="agenda-meta">
                   {formatTime(proposal.proposed_at)} · Proposition acceptée
                 </div>
                 {proposal.description && (
-                  <div className="agenda-description">{proposal.description}</div>
+                  <div className="agenda-description">
+                    {proposal.description}
+                  </div>
                 )}
               </article>
             ))}
@@ -705,13 +876,18 @@ export default function AgendaApp({ characterId }: Props) {
 
       {showEventForm && (
         <section className="agenda-panel">
-          <h3>{editingEventId ? 'Modifier un événement' : 'Créer un événement'}</h3>
+          <h3>
+            {editingEventId ? 'Modifier un événement' : 'Créer un événement'}
+          </h3>
+
           <form className="agenda-form" onSubmit={saveEvent}>
             <label>
               Type d’événement
               <select
                 value={eventType}
-                onChange={(e) => setEventType(e.target.value as typeof eventType)}
+                onChange={(e) =>
+                  setEventType(e.target.value as typeof eventType)
+                }
               >
                 <option value="house">Événement de maison</option>
                 <option value="activity">Activité extrascolaire</option>
@@ -727,7 +903,10 @@ export default function AgendaApp({ characterId }: Props) {
                 required
               >
                 {scopesForType.map((scope) => (
-                  <option value={scope.name} key={`${scope.type}-${scope.name}`}>
+                  <option
+                    value={scope.name}
+                    key={`${scope.type}-${scope.name}`}
+                  >
                     {scope.name}
                   </option>
                 ))}
@@ -783,10 +962,16 @@ export default function AgendaApp({ characterId }: Props) {
             </label>
 
             <div className="agenda-actions">
-              <button className="primary" type="submit" disabled={savingEvent || !eventScope}>
+              <button
+                className="primary"
+                type="submit"
+                disabled={savingEvent || !eventScope}
+              >
                 {savingEvent ? 'Enregistrement…' : 'Enregistrer'}
               </button>
-              <button type="button" onClick={resetEventForm}>Annuler</button>
+              <button type="button" onClick={resetEventForm}>
+                Annuler
+              </button>
             </div>
           </form>
         </section>
@@ -794,6 +979,7 @@ export default function AgendaApp({ characterId }: Props) {
 
       <section className="agenda-panel">
         <h3>Proposer une activité</h3>
+
         <form className="agenda-form" onSubmit={submitProposal}>
           <label>
             Activité proposée
@@ -825,7 +1011,11 @@ export default function AgendaApp({ characterId }: Props) {
             />
           </label>
 
-          <button className="primary" type="submit" disabled={sendingProposal}>
+          <button
+            className="primary"
+            type="submit"
+            disabled={sendingProposal}
+          >
             {sendingProposal ? 'Envoi…' : 'Envoyer ma proposition'}
           </button>
         </form>
@@ -833,8 +1023,11 @@ export default function AgendaApp({ characterId }: Props) {
 
       <section className="agenda-panel">
         <h3>Propositions des personnages</h3>
+
         {proposals.length === 0 ? (
-          <div className="agenda-empty">Aucune proposition pour le moment.</div>
+          <div className="agenda-empty">
+            Aucune proposition pour le moment.
+          </div>
         ) : (
           <div className="agenda-list">
             {proposals.map((proposal) => {
@@ -844,14 +1037,22 @@ export default function AgendaApp({ characterId }: Props) {
 
               return (
                 <article className="agenda-proposal" key={proposal.id}>
-                  <div className="agenda-event-title">{proposal.activity}</div>
-                  <div className="agenda-meta">
-                    Proposé par : {characterName(characters[proposal.character_id])}
-                    <br />
-                    Date souhaitée : {formatDate(proposal.proposed_at)} à {formatTime(proposal.proposed_at)}
+                  <div className="agenda-event-title">
+                    {proposal.activity}
                   </div>
+
+                  <div className="agenda-meta">
+                    Proposé par :{' '}
+                    {characterName(characters[proposal.character_id])}
+                    <br />
+                    Date souhaitée : {formatDate(proposal.proposed_at)} à{' '}
+                    {formatTime(proposal.proposed_at)}
+                  </div>
+
                   {proposal.description && (
-                    <div className="agenda-description">{proposal.description}</div>
+                    <div className="agenda-description">
+                      {proposal.description}
+                    </div>
                   )}
 
                   {myResponse ? (
@@ -859,13 +1060,16 @@ export default function AgendaApp({ characterId }: Props) {
                       {myResponse.response === 'accepted'
                         ? '✓ Tu as accepté cette proposition.'
                         : '✕ Tu as refusé cette proposition.'}
+
                       <div className="agenda-actions">
                         <button
                           type="button"
                           onClick={() =>
                             answerProposal(
                               proposal.id,
-                              myResponse.response === 'accepted' ? 'refused' : 'accepted'
+                              myResponse.response === 'accepted'
+                                ? 'refused'
+                                : 'accepted'
                             )
                           }
                         >
@@ -877,13 +1081,17 @@ export default function AgendaApp({ characterId }: Props) {
                     <div className="agenda-actions">
                       <button
                         type="button"
-                        onClick={() => answerProposal(proposal.id, 'accepted')}
+                        onClick={() =>
+                          answerProposal(proposal.id, 'accepted')
+                        }
                       >
                         Accepter
                       </button>
                       <button
                         type="button"
-                        onClick={() => answerProposal(proposal.id, 'refused')}
+                        onClick={() =>
+                          answerProposal(proposal.id, 'refused')
+                        }
                       >
                         Refuser
                       </button>
