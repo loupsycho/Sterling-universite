@@ -1,16 +1,17 @@
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { supabase } from '@/lib/supabase';
 
 type Character = {
   id: string;
-  name: string;
+  name: string | null;
   first_name: string | null;
   housing: string | null;
   extracurricular_activity: string | null;
   study_program: string | null;
   university_responsibility: string | null;
   course_position: string | null;
+  staff_job: string | null;
 };
 
 type AgendaEvent = {
@@ -40,11 +41,16 @@ type ProposalResponse = {
   response: 'accepted' | 'refused';
 };
 
+type ScopeOption = {
+  type: 'house' | 'activity' | 'course';
+  name: string;
+};
+
 type Props = {
   characterId: string;
 };
 
-const HOUSES = ['Alpha King', 'Kappa Gold', 'Omega Crow'];
+const HOUSE_NAMES = ['Alpha King', 'Kappa Gold', 'Omega Crow'];
 
 function normalize(value: string | null | undefined) {
   return (value || '')
@@ -54,82 +60,87 @@ function normalize(value: string | null | undefined) {
     .trim();
 }
 
-function dateKey(date: Date) {
+function localDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-function localDateTimeValue(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
+function toLocalInput(value: string | Date) {
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000)
+    .toISOString()
+    .slice(0, 16);
 }
 
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat('fr-FR', {
+function formatDate(value: string | Date) {
+  return new Date(value).toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(date);
+  });
 }
 
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat('fr-FR', {
+function formatTime(value: string | Date) {
+  return new Date(value).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value));
+  });
 }
 
-function sameDay(first: string, second: Date) {
-  return dateKey(new Date(first)) === dateKey(second);
+function characterName(character?: Character) {
+  if (!character) return 'Personnage inconnu';
+  return `${character.first_name || ''} ${character.name || ''}`.trim() || 'Personnage';
 }
 
-function isHouseManager(character: Character, house: string) {
+function getScopes(character: Character): ScopeOption[] {
+  const scopes: ScopeOption[] = [];
   const responsibility = normalize(character.university_responsibility);
-  const housing = normalize(character.housing);
-  const target = normalize(house);
+  const coursePosition = normalize(character.course_position);
 
-  const hasRole =
+  // Responsables des maisons : Chef ou Sous-chef.
+  if (
     responsibility.includes('chef') ||
-    responsibility.includes('sous-chef');
+    responsibility.includes('sous-chef')
+  ) {
+    HOUSE_NAMES.forEach((house) => {
+      const houseName = normalize(house);
+      if (
+        responsibility.includes(houseName) ||
+        normalize(character.housing).includes(houseName)
+      ) {
+        scopes.push({ type: 'house', name: house });
+      }
+    });
+  }
 
-  const belongsToHouse =
-    housing.includes(target) || responsibility.includes(target);
-
-  return hasRole && belongsToHouse;
-}
-
-function isActivityManager(character: Character, activity: string) {
-  const responsibility = normalize(character.university_responsibility);
-  const assignedActivity = normalize(character.extracurricular_activity);
-
-  return (
+  // Responsable d'une activité : Chef de l'activité concernée.
+  if (
     responsibility.includes('chef') &&
-    assignedActivity === normalize(activity)
-  );
-}
+    character.extracurricular_activity?.trim()
+  ) {
+    scopes.push({
+      type: 'activity',
+      name: character.extracurricular_activity.trim(),
+    });
+  }
 
-function isCourseManager(character: Character, course: string) {
-  const position = normalize(character.course_position);
-  const program = normalize(character.study_program);
+  // Professeur : responsable du programme/cours qui lui est attribué.
+  if (
+    (coursePosition.includes('professeur') ||
+      coursePosition.includes('enseignant')) &&
+    character.study_program?.trim()
+  ) {
+    scopes.push({
+      type: 'course',
+      name: character.study_program.trim(),
+    });
+  }
 
-  return (
-    (position.includes('professeur') || position.includes('enseignant')) &&
-    (position.includes(normalize(course)) ||
-      program === normalize(course))
-  );
-}
-
-function canManageScope(
-  character: Character,
-  type: AgendaEvent['event_type'],
-  scope: string
-) {
-  if (type === 'house') return isHouseManager(character, scope);
-  if (type === 'activity') return isActivityManager(character, scope);
-  return isCourseManager(character, scope);
+  return scopes;
 }
 
 export default function AgendaApp({ characterId }: Props) {
@@ -137,67 +148,72 @@ export default function AgendaApp({ characterId }: Props) {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [responses, setResponses] = useState<ProposalResponse[]>([]);
+  const [characters, setCharacters] = useState<Record<string, Character>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-
   const [today, setToday] = useState(() => new Date());
-  const [displayedMonth, setDisplayedMonth] = useState(
-    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  );
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [month, setMonth] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState(() => localDateKey(new Date()));
 
   const [showEventForm, setShowEventForm] = useState(false);
-  const [showProposalForm, setShowProposalForm] = useState(false);
-
-  const [eventType, setEventType] =
-    useState<AgendaEvent['event_type']>('house');
-  const [eventScope, setEventScope] = useState(HOUSES[0]);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventType, setEventType] = useState<'house' | 'activity' | 'course'>('house');
+  const [eventScope, setEventScope] = useState('');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
-  const [eventLocation, setEventLocation] = useState('');
-  const [eventStart, setEventStart] = useState(
-    () => localDateTimeValue(new Date())
-  );
+  const [eventStart, setEventStart] = useState(toLocalInput(new Date(Date.now() + 3600000)));
   const [eventEnd, setEventEnd] = useState('');
+  const [eventLocation, setEventLocation] = useState('');
+  const [savingEvent, setSavingEvent] = useState(false);
 
   const [proposalActivity, setProposalActivity] = useState('');
-  const [proposalDescription, setProposalDescription] = useState('');
   const [proposalDate, setProposalDate] = useState(
-    () => localDateTimeValue(new Date())
+    toLocalInput(new Date(Date.now() + 86400000))
+  );
+  const [proposalDescription, setProposalDescription] = useState('');
+  const [sendingProposal, setSendingProposal] = useState(false);
+
+  const availableScopes = useMemo(
+    () => (character ? getScopes(character) : []),
+    [character]
   );
 
-  const [saving, setSaving] = useState(false);
+  const scopesForType = availableScopes.filter((scope) => scope.type === eventType);
 
-  // Actualise la date du jour automatiquement.
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const current = new Date();
-      setToday(current);
+  const selectedEvents = events.filter(
+    (event) => localDateKey(event.starts_at) === selectedDay
+  );
 
-      setSelectedDate((previous) => {
-        if (dateKey(previous) !== dateKey(current)) {
-          return current;
-        }
-        return previous;
-      });
+  const myResponses = responses.filter(
+    (response) => response.character_id === characterId
+  );
 
-      setDisplayedMonth((previous) => {
-        if (
-          previous.getFullYear() !== current.getFullYear() ||
-          previous.getMonth() !== current.getMonth()
-        ) {
-          return new Date(current.getFullYear(), current.getMonth(), 1);
-        }
-        return previous;
-      });
-    }, 30000);
+  const acceptedProposals = proposals.filter((proposal) =>
+    myResponses.some(
+      (response) =>
+        response.proposal_id === proposal.id &&
+        response.response === 'accepted'
+    )
+  );
 
-    return () => window.clearInterval(timer);
-  }, []);
+  const calendarDays = useMemo(() => {
+    const year = month.getFullYear();
+    const monthIndex = month.getMonth();
+    const firstDay = new Date(year, monthIndex, 1);
+    const lastDay = new Date(year, monthIndex + 1, 0);
+    const mondayOffset = (firstDay.getDay() + 6) % 7;
+    const days: Array<Date | null> = [];
+
+    for (let i = 0; i < mondayOffset; i++) days.push(null);
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      days.push(new Date(year, monthIndex, day));
+    }
+    while (days.length % 7 !== 0) days.push(null);
+
+    return days;
+  }, [month]);
 
   async function loadAgenda() {
-    setLoading(true);
     setError('');
 
     const [
@@ -209,21 +225,18 @@ export default function AgendaApp({ characterId }: Props) {
       supabase
         .from('characters')
         .select(
-          'id, name, first_name, housing, extracurricular_activity, study_program, university_responsibility, course_position'
+          'id,name,first_name,housing,extracurricular_activity,study_program,university_responsibility,course_position,staff_job'
         )
         .eq('id', characterId)
         .single(),
-
       supabase
         .from('agenda_events')
         .select('*')
         .order('starts_at', { ascending: true }),
-
       supabase
         .from('agenda_proposals')
         .select('*')
         .order('proposed_at', { ascending: true }),
-
       supabase
         .from('agenda_proposal_responses')
         .select('*')
@@ -231,200 +244,168 @@ export default function AgendaApp({ characterId }: Props) {
     ]);
 
     if (characterResult.error) {
-      console.error(characterResult.error);
-      setError('Impossible de charger les informations du personnage.');
+      setError('Impossible de charger le personnage.');
       setLoading(false);
       return;
     }
 
     if (eventsResult.error || proposalsResult.error || responsesResult.error) {
-      console.error(
-        eventsResult.error ||
-          proposalsResult.error ||
-          responsesResult.error
-      );
-      setError("Impossible de charger les données de l'agenda.");
+      setError('Impossible de charger toutes les données de l’agenda.');
       setLoading(false);
       return;
     }
 
-    setCharacter(characterResult.data as Character);
+    const loadedCharacter = characterResult.data as Character;
+    const loadedProposals = (proposalsResult.data || []) as Proposal[];
+
+    setCharacter(loadedCharacter);
     setEvents((eventsResult.data || []) as AgendaEvent[]);
-    setProposals((proposalsResult.data || []) as Proposal[]);
+    setProposals(loadedProposals);
     setResponses((responsesResult.data || []) as ProposalResponse[]);
+
+    const ids = [...new Set(loadedProposals.map((proposal) => proposal.character_id))];
+
+    if (ids.length > 0) {
+      const peopleResult = await supabase
+        .from('characters')
+        .select('id,name,first_name')
+        .in('id', ids);
+
+      if (!peopleResult.error) {
+        const peopleMap: Record<string, Character> = {};
+        (peopleResult.data || []).forEach((person) => {
+          peopleMap[person.id] = person as Character;
+        });
+        setCharacters(peopleMap);
+      }
+    } else {
+      setCharacters({});
+    }
+
     setLoading(false);
   }
 
   useEffect(() => {
     loadAgenda();
+    // Le changement de personnage recharge son agenda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [characterId]);
 
-  const activityOptions = character?.extracurricular_activity
-    ? [character.extracurricular_activity]
-    : [];
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const current = new Date();
+      setToday(current);
+      setMonth((previous) => {
+        if (
+          previous.getFullYear() !== current.getFullYear() ||
+          previous.getMonth() !== current.getMonth()
+        ) {
+          return current;
+        }
+        return previous;
+      });
+    }, 30000);
 
-  const courseOptions = character?.study_program
-    ? [character.study_program]
-    : [];
-
-  const availableScopes = useMemo(() => {
-    if (!character) return [];
-
-    if (eventType === 'house') {
-      return HOUSES.filter((house) => isHouseManager(character, house));
-    }
-
-    if (eventType === 'activity') {
-      return activityOptions.filter((activity) =>
-        isActivityManager(character, activity)
-      );
-    }
-
-    return courseOptions.filter((course) =>
-      isCourseManager(character, course)
-    );
-  }, [character, eventType]);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
-    if (availableScopes.length > 0) {
-      setEventScope(availableScopes[0]);
-    } else {
-      setEventScope('');
-    }
-  }, [eventType, characterId, availableScopes.join('|')]);
+    const validScope = scopesForType.some((scope) => scope.name === eventScope);
+    if (!validScope) setEventScope(scopesForType[0]?.name || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventType, character]);
 
-  const calendarDays = useMemo(() => {
-    const firstDay = new Date(
-      displayedMonth.getFullYear(),
-      displayedMonth.getMonth(),
-      1
-    );
-
-    const mondayOffset = (firstDay.getDay() + 6) % 7;
-    const start = new Date(firstDay);
-    start.setDate(firstDay.getDate() - mondayOffset);
-
-    return Array.from({ length: 42 }, (_, index) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + index);
-      return day;
-    });
-  }, [displayedMonth]);
-
-  const selectedEvents = events.filter((event) =>
-    sameDay(event.starts_at, selectedDate)
-  );
-
-  const acceptedProposals = proposals.filter((proposal) => {
-    const response = responses.find(
-      (item) => item.proposal_id === proposal.id
-    );
-
-    return (
-      response?.response === 'accepted' &&
-      sameDay(proposal.proposed_at, selectedDate)
-    );
-  });
-
-  function hasEventOnDay(day: Date) {
-    return events.some((event) => sameDay(event.starts_at, day));
+  function resetEventForm() {
+    setEditingEventId(null);
+    setEventType('house');
+    setEventScope('');
+    setEventTitle('');
+    setEventDescription('');
+    setEventStart(toLocalInput(new Date(Date.now() + 3600000)));
+    setEventEnd('');
+    setEventLocation('');
+    setShowEventForm(false);
   }
 
-  function hasAcceptedProposalOnDay(day: Date) {
-    return proposals.some((proposal) => {
-      const response = responses.find(
-        (item) => item.proposal_id === proposal.id
-      );
-
-      return (
-        response?.response === 'accepted' &&
-        sameDay(proposal.proposed_at, day)
-      );
-    });
+  function startEditing(event: AgendaEvent) {
+    setEditingEventId(event.id);
+    setEventType(event.event_type);
+    setEventScope(event.scope_name);
+    setEventTitle(event.title);
+    setEventDescription(event.description || '');
+    setEventStart(toLocalInput(event.starts_at));
+    setEventEnd(event.ends_at ? toLocalInput(event.ends_at) : '');
+    setEventLocation(event.location || '');
+    setShowEventForm(true);
   }
 
-  async function createEvent(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!character || !eventTitle.trim() || !eventScope || !eventStart) {
+  async function saveEvent(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!character || !eventScope || !eventTitle.trim() || !eventStart) return;
+
+    if (eventEnd && new Date(eventEnd) < new Date(eventStart)) {
+      setError('La fin de l’événement doit être après son début.');
       return;
     }
 
-    if (!canManageScope(character, eventType, eventScope)) {
-      setError("Tu n'as pas les droits pour gérer cette catégorie.");
-      return;
-    }
-
-    setSaving(true);
+    setSavingEvent(true);
     setError('');
-    setMessage('');
 
-    const { error: insertError } = await supabase
-      .from('agenda_events')
-      .insert({
-        title: eventTitle.trim(),
-        description: eventDescription.trim() || null,
-        event_type: eventType,
-        scope_name: eventScope,
-        starts_at: new Date(eventStart).toISOString(),
-        ends_at: eventEnd ? new Date(eventEnd).toISOString() : null,
-        location: eventLocation.trim() || null,
-        created_by_character_id: characterId,
-      });
+    const payload = {
+      title: eventTitle.trim(),
+      description: eventDescription.trim() || null,
+      event_type: eventType,
+      scope_name: eventScope,
+      starts_at: new Date(eventStart).toISOString(),
+      ends_at: eventEnd ? new Date(eventEnd).toISOString() : null,
+      location: eventLocation.trim() || null,
+      created_by_character_id: characterId,
+    };
 
-    if (insertError) {
-      console.error(insertError);
-      setError("Impossible d'enregistrer cet événement.");
-    } else {
-      setMessage('Événement ajouté au calendrier.');
-      setEventTitle('');
-      setEventDescription('');
-      setEventLocation('');
-      setEventEnd('');
-      setShowEventForm(false);
-      await loadAgenda();
-    }
+    const result = editingEventId
+      ? await supabase
+          .from('agenda_events')
+          .update(payload)
+          .eq('id', editingEventId)
+      : await supabase.from('agenda_events').insert(payload);
 
-    setSaving(false);
-  }
+    setSavingEvent(false);
 
-  async function deleteEvent(event: AgendaEvent) {
-    if (!character) return;
-
-    const authorized =
-      event.created_by_character_id === characterId ||
-      canManageScope(character, event.event_type, event.scope_name);
-
-    if (!authorized) {
-      setError("Tu n'as pas les droits pour supprimer cet événement.");
+    if (result.error) {
+      setError(
+        'Enregistrement refusé. Vérifie que ton personnage possède bien le rôle responsable de cet événement.'
+      );
       return;
     }
 
-    if (!window.confirm('Supprimer cet événement ?')) return;
+    resetEventForm();
+    await loadAgenda();
+  }
+
+  async function deleteEvent(eventId: string) {
+    if (!window.confirm('Supprimer définitivement cet événement ?')) return;
 
     const { error: deleteError } = await supabase
       .from('agenda_events')
       .delete()
-      .eq('id', event.id);
+      .eq('id', eventId);
 
     if (deleteError) {
-      console.error(deleteError);
-      setError("Impossible de supprimer cet événement.");
-    } else {
-      setMessage('Événement supprimé.');
-      await loadAgenda();
+      setError('Tu ne peux pas supprimer cet événement avec ce personnage.');
+      return;
     }
+
+    await loadAgenda();
   }
 
-  async function createProposal(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function submitProposal(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     if (!proposalActivity.trim() || !proposalDate) return;
 
-    setSaving(true);
+    setSendingProposal(true);
     setError('');
-    setMessage('');
 
-    const { error: insertError } = await supabase
+    const { error: proposalError } = await supabase
       .from('agenda_proposals')
       .insert({
         character_id: characterId,
@@ -433,27 +414,22 @@ export default function AgendaApp({ characterId }: Props) {
         description: proposalDescription.trim() || null,
       });
 
-    if (insertError) {
-      console.error(insertError);
-      setError('Impossible de transmettre ta proposition.');
-    } else {
-      setMessage('Ta proposition a été envoyée.');
-      setProposalActivity('');
-      setProposalDescription('');
-      setShowProposalForm(false);
-      await loadAgenda();
+    setSendingProposal(false);
+
+    if (proposalError) {
+      setError('Impossible d’envoyer cette proposition.');
+      return;
     }
 
-    setSaving(false);
+    setProposalActivity('');
+    setProposalDescription('');
+    await loadAgenda();
   }
 
   async function answerProposal(
     proposalId: string,
     response: 'accepted' | 'refused'
   ) {
-    setError('');
-    setMessage('');
-
     const { error: responseError } = await supabase
       .from('agenda_proposal_responses')
       .upsert(
@@ -467,214 +443,275 @@ export default function AgendaApp({ characterId }: Props) {
       );
 
     if (responseError) {
-      console.error(responseError);
       setError('Impossible d’enregistrer ta réponse.');
-    } else {
-      setMessage(
-        response === 'accepted'
-          ? 'Activité ajoutée à ton agenda.'
-          : 'Tu as refusé cette proposition.'
-      );
-      await loadAgenda();
+      return;
     }
+
+    await loadAgenda();
   }
 
-  function changeMonth(direction: number) {
-    setDisplayedMonth(
-      new Date(
-        displayedMonth.getFullYear(),
-        displayedMonth.getMonth() + direction,
-        1
-      )
-    );
+  function changeMonth(amount: number) {
+    setMonth((previous) => new Date(
+      previous.getFullYear(),
+      previous.getMonth() + amount,
+      1
+    ));
+  }
+
+  function openNewEventForm() {
+    resetEventForm();
+    setEventType(availableScopes[0]?.type || 'house');
+    setEventScope(availableScopes[0]?.name || '');
+    setShowEventForm(true);
   }
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-8 text-center text-bone-300">
-        Chargement de ton agenda...
+      <div className="agenda-loading">
+        <span className="agenda-loading-icon">✦</span>
+        Chargement de l’agenda…
       </div>
     );
   }
-
-  if (error && !character) {
-    return (
-      <div className="rounded-2xl border border-red-500/30 bg-ink-900 p-6 text-red-300">
-        {error}
-      </div>
-    );
-  }
-
-  if (!character) return null;
 
   return (
-    <div className="space-y-6">
-      <header className="rounded-2xl border border-gold-500/30 bg-ink-900/80 p-5 text-center">
-        <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
-          Sterling Campus
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold text-bone-100">
-          Agenda
-        </h1>
-        <p className="mt-4 text-sm font-bold uppercase tracking-wide text-gold-300">
-          LE CALENDRIER EST SYNCHRONISÉ AVEC LES JOURS RÉELS.
-        </p>
-        <p className="mt-1 text-sm text-bone-300">
-          Merci d’en tenir compte lorsque vous créez des événements.
-        </p>
-        <p className="mt-4 text-lg font-medium capitalize text-bone-100">
-          {formatDate(today)}
-        </p>
+    <div className="agenda-app">
+      <style>{`
+        .agenda-app {
+          color: #eee9df;
+          background: #101010;
+          min-height: 100%;
+          padding: 20px;
+          font-family: inherit;
+        }
+        .agenda-app * { box-sizing: border-box; }
+        .agenda-header { text-align: center; margin-bottom: 22px; }
+        .agenda-header h2 {
+          color: #d7b56d; letter-spacing: 4px; text-transform: uppercase;
+          font-size: 23px; margin: 0 0 8px;
+        }
+        .agenda-reminder {
+          border: 1px solid #806637; background: #211c13; color: #f1d99e;
+          padding: 12px; border-radius: 8px; font-size: 12px;
+          line-height: 1.6; text-align: center; margin-bottom: 20px;
+        }
+        .agenda-panel {
+          background: #191919; border: 1px solid #393126;
+          border-radius: 10px; padding: 16px; margin-bottom: 18px;
+        }
+        .agenda-panel h3 {
+          color: #d7b56d; text-transform: uppercase; letter-spacing: 2px;
+          font-size: 13px; margin: 0 0 14px;
+        }
+        .agenda-month-bar {
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 10px; margin-bottom: 14px;
+        }
+        .agenda-month-bar strong {
+          color: #e7d3a5; text-transform: capitalize; font-size: 15px;
+        }
+        .agenda-app button {
+          cursor: pointer; border: 1px solid #806637; color: #e8d4a4;
+          background: #292216; border-radius: 6px; padding: 8px 11px;
+          font-size: 12px;
+        }
+        .agenda-app button:hover { background: #45371f; }
+        .agenda-calendar {
+          display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 5px;
+        }
+        .agenda-weekday {
+          color: #9e8a64; text-align: center; font-size: 10px;
+          padding: 5px 0; text-transform: uppercase;
+        }
+        .agenda-day {
+          min-height: 43px; padding: 7px 3px !important;
+          border-color: #393126 !important; background: #111 !important;
+          display: flex; flex-direction: column; align-items: center;
+          justify-content: flex-start; gap: 4px;
+        }
+        .agenda-day.muted { opacity: .22; cursor: default; }
+        .agenda-day.today { border-color: #d7b56d !important; color: #f3d99d; }
+        .agenda-day.selected { background: #49391f !important; }
+        .agenda-day-dot { width: 5px; height: 5px; border-radius: 50%; background: #d7b56d; }
+        .agenda-list { display: flex; flex-direction: column; gap: 10px; }
+        .agenda-event, .agenda-proposal {
+          background: #111; border: 1px solid #393126; border-radius: 8px;
+          padding: 12px;
+        }
+        .agenda-event-title { color: #e8d4a4; font-weight: 700; margin-bottom: 5px; }
+        .agenda-meta { color: #a99a7c; font-size: 11px; line-height: 1.6; }
+        .agenda-description { color: #d0cbc1; font-size: 12px; margin-top: 8px; white-space: pre-wrap; }
+        .agenda-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+        .agenda-form { display: flex; flex-direction: column; gap: 10px; }
+        .agenda-form label { color: #c6ad78; font-size: 11px; }
+        .agenda-form input, .agenda-form textarea, .agenda-form select {
+          width: 100%; background: #0e0e0e; color: #eee9df;
+          border: 1px solid #51432b; border-radius: 6px; padding: 10px;
+          margin-top: 5px; font: inherit; font-size: 12px;
+        }
+        .agenda-form textarea { min-height: 75px; resize: vertical; }
+        .agenda-form button.primary { background: #806637; color: #fff8e8; }
+        .agenda-empty { color: #928a7d; font-size: 12px; text-align: center; padding: 14px 4px; }
+        .agenda-error {
+          color: #ffb4a9; background: #321c1a; border: 1px solid #75413b;
+          padding: 10px; border-radius: 7px; font-size: 12px; margin-bottom: 12px;
+        }
+        .agenda-loading { color: #d7b56d; padding: 30px; text-align: center; }
+        .agenda-loading-icon { display: block; font-size: 25px; margin-bottom: 8px; }
+        .agenda-section-heading {
+          display: flex; justify-content: space-between; align-items: center;
+          gap: 10px; margin-bottom: 12px;
+        }
+        .agenda-section-heading h3 { margin: 0; }
+        .agenda-response { color: #cdbb91; font-size: 11px; margin-top: 8px; }
+        @media (max-width: 420px) {
+          .agenda-app { padding: 12px; }
+          .agenda-panel { padding: 12px; }
+          .agenda-day { min-height: 38px; }
+        }
+      `}</style>
+
+      <header className="agenda-header">
+        <h2>✦ Agenda ✦</h2>
+        <div className="agenda-meta">
+          {character ? characterName(character) : 'Mon agenda'}
+        </div>
       </header>
 
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
-          {error}
-        </p>
-      )}
+      <div className="agenda-reminder">
+        <strong>LE CALENDRIER EST SYNCHRONISÉ AVEC LES JOURS RÉELS.</strong>
+        <br />
+        Merci d’en tenir compte lorsque vous créez des événements.
+      </div>
 
-      {message && (
-        <p className="rounded-xl border border-green-500/30 bg-green-950/20 p-3 text-sm text-green-300">
-          {message}
-        </p>
-      )}
+      {error && <div className="agenda-error">{error}</div>}
 
-      <section className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-4 sm:p-6">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => changeMonth(-1)}
-            className="rounded-lg border border-gold-500/30 px-3 py-2 text-gold-300 hover:bg-gold-500/10"
-          >
-            ←
-          </button>
-
-          <h2 className="text-lg font-semibold capitalize text-bone-100">
-            {new Intl.DateTimeFormat('fr-FR', {
-              month: 'long',
-              year: 'numeric',
-            }).format(displayedMonth)}
-          </h2>
-
-          <button
-            type="button"
-            onClick={() => changeMonth(1)}
-            className="rounded-lg border border-gold-500/30 px-3 py-2 text-gold-300 hover:bg-gold-500/10"
-          >
-            →
-          </button>
+      <section className="agenda-panel">
+        <div className="agenda-month-bar">
+          <button type="button" onClick={() => changeMonth(-1)}>‹</button>
+          <strong>
+            {month.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+          </strong>
+          <button type="button" onClick={() => changeMonth(1)}>›</button>
         </div>
 
-        <div className="grid grid-cols-7 gap-1 text-center">
+        <div className="agenda-calendar">
           {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((day) => (
-            <div
-              key={day}
-              className="py-2 text-xs font-semibold uppercase text-gold-300"
-            >
-              {day}
-            </div>
+            <div className="agenda-weekday" key={day}>{day}</div>
           ))}
 
-          {calendarDays.map((day) => {
-            const isCurrentMonth =
-              day.getMonth() === displayedMonth.getMonth();
-            const isToday = dateKey(day) === dateKey(today);
-            const isSelected = dateKey(day) === dateKey(selectedDate);
-            const hasEvents = hasEventOnDay(day);
-            const hasProposals = hasAcceptedProposalOnDay(day);
+          {calendarDays.map((day, index) => {
+            if (!day) return <div key={`empty-${index}`} />;
+
+            const key = localDateKey(day);
+            const hasEvent = events.some((event) => localDateKey(event.starts_at) === key);
+            const hasAcceptedProposal = acceptedProposals.some(
+              (proposal) => localDateKey(proposal.proposed_at) === key
+            );
+            const isToday = key === localDateKey(today);
+            const isSelected = key === selectedDay;
 
             return (
               <button
-                key={dateKey(day)}
                 type="button"
-                onClick={() => setSelectedDate(day)}
-                className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm transition ${
-                  isSelected
-                    ? 'border-gold-400 bg-gold-500/20 text-gold-200'
-                    : isToday
-                      ? 'border-gold-500/50 text-gold-300'
-                      : 'border-transparent text-bone-300 hover:border-gold-500/30 hover:bg-white/5'
-                } ${!isCurrentMonth ? 'opacity-30' : ''}`}
+                key={key}
+                className={`agenda-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
+                onClick={() => setSelectedDay(key)}
               >
-                <span className="font-medium">{day.getDate()}</span>
-                {(hasEvents || hasProposals) && (
-                  <span className="mt-1 flex gap-1">
-                    {hasEvents && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-gold-400" />
-                    )}
-                    {hasProposals && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                    )}
-                  </span>
-                )}
+                <span>{day.getDate()}</span>
+                {(hasEvent || hasAcceptedProposal) && <span className="agenda-day-dot" />}
               </button>
             );
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            const current = new Date();
-            setToday(current);
-            setSelectedDate(current);
-            setDisplayedMonth(
-              new Date(current.getFullYear(), current.getMonth(), 1)
-            );
-          }}
-          className="mt-4 w-full rounded-lg border border-gold-500/30 px-4 py-2 text-sm text-gold-300 hover:bg-gold-500/10"
-        >
-          Revenir à aujourd’hui
-        </button>
-
-        <div className="mt-3 flex flex-wrap justify-center gap-4 text-xs text-bone-400">
-          <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-gold-400" />
-            Événement
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-blue-400" />
-            Proposition acceptée
-          </span>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold capitalize text-bone-100">
-            {formatDate(selectedDate)}
-          </h2>
+        <div className="agenda-actions">
           <button
             type="button"
             onClick={() => {
-              setEventStart(localDateTimeValue(selectedDate));
-              setShowEventForm(!showEventForm);
+              const key = localDateKey(new Date());
+              setSelectedDay(key);
+              setMonth(new Date());
             }}
-            className="rounded-xl bg-gold-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-gold-400"
           >
-            + Créer un événement
+            Aujourd’hui
           </button>
         </div>
+      </section>
 
-        {showEventForm && (
-          <form
-            onSubmit={createEvent}
-            className="mt-5 space-y-4 rounded-xl border border-gold-500/20 bg-ink-950/70 p-4"
-          >
-            <h3 className="font-semibold text-gold-300">
-              Nouvel événement
-            </h3>
+      <section className="agenda-panel">
+        <div className="agenda-section-heading">
+          <h3>{formatDate(`${selectedDay}T12:00:00`)}</h3>
+          {availableScopes.length > 0 && (
+            <button type="button" onClick={openNewEventForm}>＋ Événement</button>
+          )}
+        </div>
 
-            <label className="block text-sm text-bone-300">
-              Catégorie
+        {selectedEvents.length === 0 &&
+          acceptedProposals.filter(
+            (proposal) => localDateKey(proposal.proposed_at) === selectedDay
+          ).length === 0 && (
+            <div className="agenda-empty">Aucun événement prévu ce jour-là.</div>
+          )}
+
+        <div className="agenda-list">
+          {selectedEvents.map((event) => (
+            <article className="agenda-event" key={event.id}>
+              <div className="agenda-event-title">{event.title}</div>
+              <div className="agenda-meta">
+                {formatTime(event.starts_at)}
+                {event.ends_at ? ` – ${formatTime(event.ends_at)}` : ''}
+                {' · '}
+                {event.scope_name}
+                {' · '}
+                {event.event_type === 'house'
+                  ? 'Maison'
+                  : event.event_type === 'activity'
+                    ? 'Activité'
+                    : 'Cours'}
+                {event.location ? ` · ${event.location}` : ''}
+              </div>
+              {event.description && (
+                <div className="agenda-description">{event.description}</div>
+              )}
+              {availableScopes.some(
+                (scope) =>
+                  scope.type === event.event_type && scope.name === event.scope_name
+              ) && (
+                <div className="agenda-actions">
+                  <button type="button" onClick={() => startEditing(event)}>Modifier</button>
+                  <button type="button" onClick={() => deleteEvent(event.id)}>Supprimer</button>
+                </div>
+              )}
+            </article>
+          ))}
+
+          {acceptedProposals
+            .filter((proposal) => localDateKey(proposal.proposed_at) === selectedDay)
+            .map((proposal) => (
+              <article className="agenda-event" key={`proposal-${proposal.id}`}>
+                <div className="agenda-event-title">{proposal.activity}</div>
+                <div className="agenda-meta">
+                  {formatTime(proposal.proposed_at)} · Proposition acceptée
+                </div>
+                {proposal.description && (
+                  <div className="agenda-description">{proposal.description}</div>
+                )}
+              </article>
+            ))}
+        </div>
+      </section>
+
+      {showEventForm && (
+        <section className="agenda-panel">
+          <h3>{editingEventId ? 'Modifier un événement' : 'Créer un événement'}</h3>
+          <form className="agenda-form" onSubmit={saveEvent}>
+            <label>
+              Type d’événement
               <select
                 value={eventType}
-                onChange={(event) =>
-                  setEventType(
-                    event.target.value as AgendaEvent['event_type']
-                  )
-                }
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
+                onChange={(e) => setEventType(e.target.value as typeof eventType)}
               >
                 <option value="house">Événement de maison</option>
                 <option value="activity">Activité extrascolaire</option>
@@ -682,353 +719,171 @@ export default function AgendaApp({ characterId }: Props) {
               </select>
             </label>
 
-            {availableScopes.length > 0 ? (
-              <label className="block text-sm text-bone-300">
-                Maison, activité ou cours
-                <select
-                  value={eventScope}
-                  onChange={(event) => setEventScope(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-                >
-                  {availableScopes.map((scope) => (
-                    <option key={scope} value={scope}>
-                      {scope}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <p className="rounded-lg border border-gold-500/20 p-3 text-sm text-bone-400">
-                Aucun rôle ne te permet actuellement de gérer cette
-                catégorie.
-              </p>
-            )}
+            <label>
+              Maison, activité ou cours
+              <select
+                value={eventScope}
+                onChange={(e) => setEventScope(e.target.value)}
+                required
+              >
+                {scopesForType.map((scope) => (
+                  <option value={scope.name} key={`${scope.type}-${scope.name}`}>
+                    {scope.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-            <label className="block text-sm text-bone-300">
+            <label>
               Nom de l’événement
               <input
-                required
                 value={eventTitle}
-                onChange={(event) => setEventTitle(event.target.value)}
-                placeholder="Ex. Réunion de rentrée"
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
+                onChange={(e) => setEventTitle(e.target.value)}
+                required
+                maxLength={100}
+                placeholder="Ex. Entraînement collectif"
               />
             </label>
 
-            <label className="block text-sm text-bone-300">
-              Description
-              <textarea
-                value={eventDescription}
-                onChange={(event) =>
-                  setEventDescription(event.target.value)
-                }
-                rows={3}
-                placeholder="Détails de l’événement..."
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
+            <label>
+              Date et heure de début
+              <input
+                type="datetime-local"
+                value={eventStart}
+                onChange={(e) => setEventStart(e.target.value)}
+                required
               />
             </label>
 
-            <label className="block text-sm text-bone-300">
-              Lieu
+            <label>
+              Date et heure de fin (facultatif)
+              <input
+                type="datetime-local"
+                value={eventEnd}
+                onChange={(e) => setEventEnd(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Lieu (facultatif)
               <input
                 value={eventLocation}
-                onChange={(event) => setEventLocation(event.target.value)}
-                placeholder="Lieu de rendez-vous"
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
+                onChange={(e) => setEventLocation(e.target.value)}
+                placeholder="Ex. Gymnase"
               />
             </label>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm text-bone-300">
-                Date et heure de début
-                <input
-                  required
-                  type="datetime-local"
-                  value={eventStart}
-                  onChange={(event) => setEventStart(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-                />
-              </label>
+            <label>
+              Description (facultatif)
+              <textarea
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+                placeholder="Informations complémentaires…"
+              />
+            </label>
 
-              <label className="block text-sm text-bone-300">
-                Date et heure de fin (facultatif)
-                <input
-                  type="datetime-local"
-                  min={eventStart}
-                  value={eventEnd}
-                  onChange={(event) => setEventEnd(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={saving || availableScopes.length === 0}
-                className="rounded-lg bg-gold-500 px-5 py-2 font-semibold text-ink-950 disabled:opacity-40"
-              >
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
+            <div className="agenda-actions">
+              <button className="primary" type="submit" disabled={savingEvent || !eventScope}>
+                {savingEvent ? 'Enregistrement…' : 'Enregistrer'}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowEventForm(false)}
-                className="rounded-lg border border-white/20 px-5 py-2 text-bone-300"
-              >
-                Annuler
-              </button>
+              <button type="button" onClick={resetEventForm}>Annuler</button>
             </div>
           </form>
-        )}
+        </section>
+      )}
 
-        <div className="mt-5 space-y-3">
-          {selectedEvents.length === 0 &&
-          acceptedProposals.length === 0 ? (
-            <p className="rounded-xl border border-white/10 p-5 text-center text-sm text-bone-400">
-              Aucun événement prévu pour cette date.
-            </p>
-          ) : (
-            <>
-              {selectedEvents.map((event) => {
-                const canDelete =
-                  event.created_by_character_id === characterId ||
-                  canManageScope(
-                    character,
-                    event.event_type,
-                    event.scope_name
-                  );
+      <section className="agenda-panel">
+        <h3>Proposer une activité</h3>
+        <form className="agenda-form" onSubmit={submitProposal}>
+          <label>
+            Activité proposée
+            <input
+              value={proposalActivity}
+              onChange={(e) => setProposalActivity(e.target.value)}
+              required
+              maxLength={120}
+              placeholder="Quelle activité souhaites-tu proposer ?"
+            />
+          </label>
 
-                return (
-                  <article
-                    key={event.id}
-                    className="rounded-xl border border-gold-500/20 bg-ink-950/60 p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-wider text-gold-300">
-                          {event.event_type === 'house'
-                            ? 'Maison'
-                            : event.event_type === 'activity'
-                              ? 'Activité extrascolaire'
-                              : 'Cours'}{' '}
-                          · {event.scope_name}
-                        </p>
-                        <h3 className="mt-1 font-semibold text-bone-100">
-                          {event.title}
-                        </h3>
-                      </div>
-                      <span className="text-sm font-semibold text-gold-300">
-                        {formatTime(event.starts_at)}
-                      </span>
-                    </div>
+          <label>
+            Date et heure souhaitées
+            <input
+              type="datetime-local"
+              value={proposalDate}
+              onChange={(e) => setProposalDate(e.target.value)}
+              required
+            />
+          </label>
 
-                    {event.description && (
-                      <p className="mt-3 whitespace-pre-wrap text-sm text-bone-300">
-                        {event.description}
-                      </p>
-                    )}
+          <label>
+            Description (facultatif)
+            <textarea
+              value={proposalDescription}
+              onChange={(e) => setProposalDescription(e.target.value)}
+              placeholder="Décris ton idée…"
+            />
+          </label>
 
-                    {event.location && (
-                      <p className="mt-2 text-xs text-bone-400">
-                        📍 {event.location}
-                      </p>
-                    )}
-
-                    {event.ends_at && (
-                      <p className="mt-2 text-xs text-bone-400">
-                        Fin : {formatTime(event.ends_at)}
-                      </p>
-                    )}
-
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={() => deleteEvent(event)}
-                        className="mt-3 text-xs text-red-300 hover:text-red-200"
-                      >
-                        Supprimer l’événement
-                      </button>
-                    )}
-                  </article>
-                );
-              })}
-
-              {acceptedProposals.map((proposal) => (
-                <article
-                  key={proposal.id}
-                  className="rounded-xl border border-blue-400/30 bg-blue-950/10 p-4"
-                >
-                  <p className="text-xs uppercase tracking-wider text-blue-300">
-                    Proposition acceptée
-                  </p>
-                  <h3 className="mt-1 font-semibold text-bone-100">
-                    {proposal.activity}
-                  </h3>
-                  <p className="mt-2 text-sm text-bone-300">
-                    {formatTime(proposal.proposed_at)}
-                  </p>
-                  {proposal.description && (
-                    <p className="mt-2 text-sm text-bone-300">
-                      {proposal.description}
-                    </p>
-                  )}
-                </article>
-              ))}
-            </>
-          )}
-        </div>
+          <button className="primary" type="submit" disabled={sendingProposal}>
+            {sendingProposal ? 'Envoi…' : 'Envoyer ma proposition'}
+          </button>
+        </form>
       </section>
 
-      <section className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-bone-100">
-              Propositions d’activités
-            </h2>
-            <p className="mt-1 text-sm text-bone-400">
-              Propose une activité ou réponds aux propositions des autres.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowProposalForm(!showProposalForm)}
-            className="rounded-xl bg-gold-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-gold-400"
-          >
-            + Proposer
-          </button>
-        </div>
-
-        {showProposalForm && (
-          <form
-            onSubmit={createProposal}
-            className="mt-5 space-y-4 rounded-xl border border-gold-500/20 bg-ink-950/70 p-4"
-          >
-            <h3 className="font-semibold text-gold-300">
-              Nouvelle proposition
-            </h3>
-
-            <label className="block text-sm text-bone-300">
-              Activité proposée
-              <input
-                required
-                value={proposalActivity}
-                onChange={(event) =>
-                  setProposalActivity(event.target.value)
-                }
-                placeholder="Quelle activité souhaites-tu proposer ?"
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-              />
-            </label>
-
-            <label className="block text-sm text-bone-300">
-              Date et heure
-              <input
-                required
-                type="datetime-local"
-                value={proposalDate}
-                onChange={(event) => setProposalDate(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-              />
-            </label>
-
-            <label className="block text-sm text-bone-300">
-              Informations complémentaires (facultatif)
-              <textarea
-                rows={3}
-                value={proposalDescription}
-                onChange={(event) =>
-                  setProposalDescription(event.target.value)
-                }
-                placeholder="Quelques précisions sur l’activité..."
-                className="mt-1 w-full rounded-lg border border-gold-500/20 bg-ink-900 p-3 text-bone-100"
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-gold-500 px-5 py-2 font-semibold text-ink-950 disabled:opacity-50"
-              >
-                {saving ? 'Envoi...' : 'Envoyer la proposition'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowProposalForm(false)}
-                className="rounded-lg border border-white/20 px-5 py-2 text-bone-300"
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
-        )}
-
-        <div className="mt-5 space-y-3">
-          {proposals.length === 0 ? (
-            <p className="rounded-xl border border-white/10 p-5 text-center text-sm text-bone-400">
-              Aucune proposition pour le moment.
-            </p>
-          ) : (
-            proposals.map((proposal) => {
-              const proposer = null;
-              const myResponse = responses.find(
+      <section className="agenda-panel">
+        <h3>Propositions des personnages</h3>
+        {proposals.length === 0 ? (
+          <div className="agenda-empty">Aucune proposition pour le moment.</div>
+        ) : (
+          <div className="agenda-list">
+            {proposals.map((proposal) => {
+              const myResponse = myResponses.find(
                 (response) => response.proposal_id === proposal.id
               );
 
               return (
-                <article
-                  key={proposal.id}
-                  className="rounded-xl border border-white/10 bg-ink-950/60 p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-wider text-gold-300">
-                        Proposition d’activité
-                      </p>
-                      <h3 className="mt-1 font-semibold text-bone-100">
-                        {proposal.activity}
-                      </h3>
-                    </div>
-                    <span className="text-sm text-bone-300">
-                      {formatDate(new Date(proposal.proposed_at))} ·{' '}
-                      {formatTime(proposal.proposed_at)}
-                    </span>
+                <article className="agenda-proposal" key={proposal.id}>
+                  <div className="agenda-event-title">{proposal.activity}</div>
+                  <div className="agenda-meta">
+                    Proposé par : {characterName(characters[proposal.character_id])}
+                    <br />
+                    Date souhaitée : {formatDate(proposal.proposed_at)} à {formatTime(proposal.proposed_at)}
                   </div>
-
-                  <p className="mt-2 text-xs text-bone-400">
-                    Proposé par un personnage
-                  </p>
-
                   {proposal.description && (
-                    <p className="mt-3 whitespace-pre-wrap text-sm text-bone-300">
-                      {proposal.description}
-                    </p>
+                    <div className="agenda-description">{proposal.description}</div>
                   )}
 
                   {myResponse ? (
-                    <p className="mt-4 text-sm text-gold-300">
+                    <div className="agenda-response">
                       {myResponse.response === 'accepted'
-                        ? '✓ Tu as accepté cette activité. Elle figure dans ton agenda.'
-                        : '✕ Tu as refusé cette activité.'}
-                    </p>
+                        ? '✓ Tu as accepté cette proposition.'
+                        : '✕ Tu as refusé cette proposition.'}
+                      <div className="agenda-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            answerProposal(
+                              proposal.id,
+                              myResponse.response === 'accepted' ? 'refused' : 'accepted'
+                            )
+                          }
+                        >
+                          Changer ma réponse
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <div className="mt-4 flex flex-wrap gap-3">
+                    <div className="agenda-actions">
                       <button
                         type="button"
-                        onClick={() =>
-                          answerProposal(proposal.id, 'accepted')
-                        }
-                        className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-gold-400"
+                        onClick={() => answerProposal(proposal.id, 'accepted')}
                       >
                         Accepter
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          answerProposal(proposal.id, 'refused')
-                        }
-                        className="rounded-lg border border-red-400/40 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10"
+                        onClick={() => answerProposal(proposal.id, 'refused')}
                       >
                         Refuser
                       </button>
@@ -1036,9 +891,9 @@ export default function AgendaApp({ characterId }: Props) {
                   )}
                 </article>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </section>
     </div>
   );
