@@ -46,6 +46,20 @@ type CharacterForm = {
   housing: string;
 };
 
+const getSavedMode = (userId: string): AppMode => {
+  try {
+    const saved = localStorage.getItem(`sterling_app_mode_${userId}`);
+
+    if (saved === 'admin' || saved === 'player' || saved === 'choice') {
+      return saved;
+    }
+  } catch (error) {
+    console.error('Impossible de récupérer la dernière page.', error);
+  }
+
+  return 'choice';
+};
+
 const activities = [
   '⚽ Football',
   '🏈 Rugby',
@@ -172,7 +186,9 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
+
   const [mode, setMode] = useState<AppMode>('choice');
+  const [modeReady, setModeReady] = useState(false);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -191,11 +207,25 @@ export default function App() {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      setMode('choice');
-      setIsAdmin(false);
-      setRegistrationStatus(null);
+
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (newSession) {
+          setMode(getSavedMode(newSession.user.id));
+          setModeReady(true);
+        } else {
+          setMode('choice');
+          setModeReady(false);
+        }
+      }
+
+      if (event === 'SIGNED_OUT') {
+        setMode('choice');
+        setModeReady(false);
+        setIsAdmin(false);
+        setRegistrationStatus(null);
+      }
     });
 
     supabase.auth.getSession().then(({ data, error }) => {
@@ -206,6 +236,20 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Mémorise le dernier espace utilisé pour chaque compte.
+  useEffect(() => {
+    if (!session || !modeReady) return;
+
+    try {
+      localStorage.setItem(
+        `sterling_app_mode_${session.user.id}`,
+        mode
+      );
+    } catch (error) {
+      console.error('Impossible de mémoriser la page.', error);
+    }
+  }, [session, mode, modeReady]);
 
   useEffect(() => {
     let mounted = true;
@@ -439,7 +483,8 @@ export default function App() {
     const student = form.character_type === 'Étudiant(e)';
 
     const extracurricular =
-      student && form.extracurricular_activity &&
+      student &&
+      form.extracurricular_activity &&
       form.extracurricular_activity !== 'Aucune activité'
         ? form.extracurricular_activity
         : null;
@@ -595,10 +640,11 @@ export default function App() {
     .map((character) => character.university_responsibility)
     .filter((value): value is string => Boolean(value));
 
-  const currentActivityResponsibility = form.extracurricular_activity &&
+  const currentActivityResponsibility =
+    form.extracurricular_activity &&
     form.extracurricular_activity !== 'Aucune activité'
-    ? activityResponsibility(form.extracurricular_activity)
-    : '';
+      ? activityResponsibility(form.extracurricular_activity)
+      : '';
 
   const responsibilityOptions = [
     ...houseResponsibilities,
