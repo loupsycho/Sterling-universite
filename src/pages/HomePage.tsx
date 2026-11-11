@@ -38,13 +38,46 @@ export default function HomePage() {
           scope: ['identify'],
         });
 
-        const { data, error } = await supabase.functions.invoke(
-          'discord-activity-auth',
-          { body: { code } }
-        );
-        if (error) throw new Error(error.message);
-        if (!data?.access_token || !data?.supabase_token_hash) {
-          throw new Error(data?.error || 'La réponse du serveur de connexion est incomplète.');
+        // Appel direct à la fonction : seule la clé publique est envoyée.
+        // Cela évite qu'un ancien jeton de session Supabase soit ajouté automatiquement.
+        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discord-activity-auth`;
+        let response: Response;
+
+        try {
+          response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ code }),
+          });
+        } catch (fetchError) {
+          console.error('Échec réseau vers la fonction Supabase :', fetchError);
+          throw new Error(
+            'Le navigateur bloque ou ne parvient pas à joindre Supabase (requête réseau/CORS). La fonction n’a probablement pas reçu la demande.'
+          );
+        }
+
+        const responseText = await response.text();
+        let data: {
+          access_token?: string;
+          supabase_token_hash?: string;
+          error?: string;
+        };
+
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(`Supabase a répondu avec un contenu illisible (HTTP ${response.status}).`);
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || `Erreur Supabase HTTP ${response.status}.`);
+        }
+
+        if (!data.access_token || !data.supabase_token_hash) {
+          throw new Error(data.error || 'La réponse du serveur de connexion est incomplète.');
         }
 
         await sdk.commands.authenticate({ access_token: data.access_token });
