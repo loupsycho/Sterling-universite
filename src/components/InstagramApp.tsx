@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 
 type Character = {
   id: string;
@@ -79,7 +80,7 @@ function Avatar({
   if (character?.avatar_url) {
     return (
       <img
-        src={character.avatar_url}
+        src={getDiscordCompatibleImageUrl(character.avatar_url)}
         alt=""
         className={`${size} shrink-0 rounded-full border border-gold-500/30 object-cover`}
       />
