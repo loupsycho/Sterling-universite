@@ -31,13 +31,48 @@ export default function MessagesApp({ characterId }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [sessionReady, setSessionReady] = useState(false);
 
+  // Sélectionner le personnage actif avant toute opération de messagerie
+  useEffect(() => {
+    let mounted = true;
+
+    async function activateCharacter() {
+      setLoading(true);
+      setSessionReady(false);
+      setError('');
+      setSelectedContact(null);
+      setMessages([]);
+
+      const { error } = await supabase.rpc('set_active_character', {
+        p_character_id: characterId,
+      });
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error(error);
+        setError("Impossible d'ouvrir le téléphone de ce personnage.");
+        setLoading(false);
+        return;
+      }
+
+      setSessionReady(true);
+    }
+
+    activateCharacter();
+
+    return () => {
+      mounted = false;
+    };
+  }, [characterId]);
+
+  // Charger les contacts une fois le personnage activé
   useEffect(() => {
     let mounted = true;
 
     async function loadContacts() {
-      setLoading(true);
-      setError('');
+      if (!sessionReady) return;
 
       const { data, error } = await supabase
         .from('characters')
@@ -62,13 +97,14 @@ export default function MessagesApp({ characterId }: Props) {
     return () => {
       mounted = false;
     };
-  }, [characterId]);
+  }, [characterId, sessionReady]);
 
+  // Charger la conversation du personnage actif
   useEffect(() => {
     let mounted = true;
 
     async function loadMessages() {
-      if (!selectedContact) {
+      if (!sessionReady || !selectedContact) {
         setMessages([]);
         return;
       }
@@ -117,12 +153,14 @@ export default function MessagesApp({ characterId }: Props) {
     return () => {
       mounted = false;
     };
-  }, [characterId, selectedContact]);
+  }, [characterId, selectedContact, sessionReady]);
 
   async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedContact || !content.trim() || sending) return;
+    if (!selectedContact || !content.trim() || sending || !sessionReady) {
+      return;
+    }
 
     setSending(true);
     setError('');
@@ -259,7 +297,9 @@ export default function MessagesApp({ characterId }: Props) {
                       <h2 className="font-medium">
                         {selectedContact.first_name} {selectedContact.name}
                       </h2>
-                      <p className="text-xs text-bone-400">Conversation privée</p>
+                      <p className="text-xs text-bone-400">
+                        Conversation privée
+                      </p>
                     </div>
                   </header>
 
