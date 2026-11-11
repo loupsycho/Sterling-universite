@@ -1,13 +1,13 @@
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-
-import AppShell from '@/components/layout/AppShell';
+import AppShell from '@/components/AppShell';
 import HomePage from '@/pages/HomePage';
+import PlayerSpace from '@/pages/PlayerSpace';
 import { supabase } from '@/lib/supabase';
 
-type AppMode = 'choice' | 'admin' | 'player';
 type RegistrationStatus = 'pending' | 'approved' | 'rejected';
+type AppMode = 'choice' | 'admin' | 'player';
 
 type Player = {
   id: string;
@@ -51,194 +51,178 @@ const emptyForm: CharacterForm = {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [accessLoading, setAccessLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [registrationStatus, setRegistrationStatus] =
-    useState<RegistrationStatus | null>(null);
+    useState<RegistrationStatus>('pending');
   const [mode, setMode] = useState<AppMode>('choice');
 
   const [players, setPlayers] = useState<Player[]>([]);
-  const [playersLoading, setPlayersLoading] = useState(false);
-  const [playersError, setPlayersError] = useState('');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [charactersLoading, setCharactersLoading] = useState(false);
-  const [characterError, setCharacterError] = useState('');
-  const [characterMessage, setCharacterMessage] = useState('');
+
   const [form, setForm] = useState<CharacterForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [savingCharacter, setSavingCharacter] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      setMode('choice');
+  const loadAccess = useCallback(async (currentSession: Session | null) => {
+    if (!currentSession) {
+      setSession(null);
       setIsAdmin(false);
-      setRegistrationStatus(null);
-    });
-
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) console.error(error);
-      setSession(data.session);
       setLoading(false);
-    });
+      return;
+    }
 
-    return () => subscription.unsubscribe();
+    setSession(currentSession);
+
+    const { data: adminResult, error: adminError } =
+      await supabase.rpc('is_admin');
+
+    if (adminError) {
+      console.error(adminError);
+      setError('Impossible de vérifier les accès.');
+      setLoading(false);
+      return;
+    }
+
+    const admin = adminResult === true;
+    setIsAdmin(admin);
+
+    if (admin) {
+      setRegistrationStatus('approved');
+      setLoading(false);
+      return;
+    }
+
+    const { data: player, error: playerError } = await supabase
+      .from('players')
+      .select('registration_status')
+      .eq('id', currentSession.user.id)
+      .maybeSingle();
+
+    if (playerError || !player) {
+      console.error(playerError);
+      setError('Impossible de récupérer votre inscription.');
+      setLoading(false);
+      return;
+    }
+
+    setRegistrationStatus(player.registration_status);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     let mounted = true;
 
-    const loadAccess = async () => {
-      if (!session) {
-        setIsAdmin(false);
-        setRegistrationStatus(null);
-        setAccessLoading(false);
-        return;
+    const initialize = async () => {
+      const { data } = await supabase.auth.getSession();
+
+      if (mounted) {
+        await loadAccess(data.session);
       }
-
-      setAccessLoading(true);
-
-      const { data: adminData, error: adminError } =
-        await supabase.rpc('is_admin');
-
-      if (!mounted) return;
-
-      const admin = !adminError && adminData === true;
-      setIsAdmin(admin);
-
-      if (admin) {
-        setRegistrationStatus('approved');
-        setAccessLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('players')
-        .select('registration_status')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (!mounted) return;
-
-      if (error) {
-        console.error(error);
-        setRegistrationStatus(null);
-      } else {
-        setRegistrationStatus(
-          data?.registration_status as RegistrationStatus | null
-        );
-      }
-
-      setAccessLoading(false);
     };
 
-    loadAccess();
+    initialize();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (mounted) {
+        setLoading(true);
+        void loadAccess(newSession);
+      }
+    });
 
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
-  }, [session]);
+  }, [loadAccess]);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setMode('choice');
+  };
+
+  const loadAdminData = useCallback(async () => {
+    if (!isAdmin) return;
+
+    setError('');
+
+    const [playersResult, charactersResult] = await Promise.all([
+      supabase
+        .from('players')
+        .select('*')
+        .order('created_at', { ascending: false }),
+
+      supabase
+        .from('characters')
+        .select('*')
+        .order('name', { ascending: true }),
+    ]);
+
+    if (playersResult.error) {
+      console.error(playersResult.error);
+      setError('Impossible de charger les comptes joueurs.');
+      return;
+    }
+
+    if (charactersResult.error) {
+      console.error(charactersResult.error);
+      setError('Impossible de charger les personnages.');
+      return;
+    }
+
+    setPlayers(playersResult.data as Player[]);
+    setCharacters(charactersResult.data as Character[]);
+  }, [isAdmin]);
 
   useEffect(() => {
-    if (!isAdmin || mode !== 'admin') return;
+    if (isAdmin && mode === 'admin') {
+      void loadAdminData();
+    }
+  }, [isAdmin, mode, loadAdminData]);
 
-    let mounted = true;
-
-    const loadAdminData = async () => {
-      setPlayersLoading(true);
-      setCharactersLoading(true);
-      setPlayersError('');
-      setCharacterError('');
-
-      const [playersResult, charactersResult] = await Promise.all([
-        supabase
-          .from('players')
-          .select('id, discord_username, registration_status, created_at')
-          .order('created_at', { ascending: false }),
-
-        supabase
-          .from('characters')
-          .select(
-            'id, player_id, name, first_name, age, character_type, course_position, housing, avatar_url'
-          )
-          .order('name', { ascending: true }),
-      ]);
-
-      if (!mounted) return;
-
-      if (playersResult.error) {
-        console.error(playersResult.error);
-        setPlayersError('Impossible de charger les joueurs.');
-      } else {
-        setPlayers(playersResult.data as Player[]);
-      }
-
-      if (charactersResult.error) {
-        console.error(charactersResult.error);
-        setCharacterError('Impossible de charger les personnages.');
-      } else {
-        setCharacters(charactersResult.data as Character[]);
-      }
-
-      setPlayersLoading(false);
-      setCharactersLoading(false);
-    };
-
-    loadAdminData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [isAdmin, mode]);
-
-  const handlePlayerStatus = async (
+  const updatePlayerStatus = async (
     playerId: string,
     status: RegistrationStatus
   ) => {
-    setUpdatingId(playerId);
-    setPlayersError('');
+    setError('');
+    setMessage('');
 
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from('players')
       .update({ registration_status: status })
       .eq('id', playerId);
 
-    if (error) {
-      console.error(error);
-      setPlayersError('La modification du statut a échoué.');
-    } else {
-      setPlayers((current) =>
-        current.map((player) =>
-          player.id === playerId
-            ? { ...player, registration_status: status }
-            : player
-        )
-      );
+    if (updateError) {
+      console.error(updateError);
+      setError('Impossible de modifier le statut de ce compte.');
+      return;
     }
 
-    setUpdatingId(null);
+    setMessage(
+      status === 'approved'
+        ? 'Le compte a été accepté.'
+        : 'Le compte a été refusé.'
+    );
+
+    await loadAdminData();
   };
 
-  const handleFormChange = (
-    field: keyof CharacterForm,
-    value: string
-  ) => {
+  const updateForm = (field: keyof CharacterForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const resetCharacterForm = () => {
+  const resetForm = () => {
     setForm(emptyForm);
     setEditingId(null);
-    setCharacterError('');
-    setCharacterMessage('');
   };
 
-  const handleEditCharacter = (character: Character) => {
+  const editCharacter = (character: Character) => {
     setEditingId(character.id);
+
     setForm({
       player_id: character.player_id,
       name: character.name || '',
@@ -248,390 +232,445 @@ export default function App() {
       course_position: character.course_position || '',
       housing: character.housing || '',
     });
-    setCharacterError('');
-    setCharacterMessage('');
+
+    setMessage('');
+    setError('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSaveCharacter = async () => {
+  const saveCharacter = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     if (!form.player_id || !form.name.trim() || !form.first_name.trim()) {
-      setCharacterError('Choisis un joueur et renseigne le nom et le prénom.');
+      setError('Merci de remplir le joueur, le nom et le prénom.');
       return;
     }
 
     const age = form.age.trim() ? Number(form.age) : null;
 
     if (age !== null && (!Number.isInteger(age) || age < 1 || age > 120)) {
-      setCharacterError('L’âge renseigné n’est pas valide.');
+      setError('Merci de saisir un âge valide.');
       return;
     }
 
-    setSavingCharacter(true);
-    setCharacterError('');
-    setCharacterMessage('');
+    setSaving(true);
+    setError('');
+    setMessage('');
 
     if (editingId) {
-      const { error } = await supabase.rpc('admin_update_character', {
-        p_character_id: editingId,
-        p_name: form.name.trim(),
-        p_first_name: form.first_name.trim(),
-        p_age: age,
-        p_character_type: form.character_type,
-        p_course_position: form.course_position.trim() || null,
-        p_housing: form.housing.trim() || null,
-      });
-
-      if (error) {
-        console.error(error);
-        setCharacterError('Impossible de modifier ce personnage.');
-        setSavingCharacter(false);
-        return;
-      }
-    } else {
-      const { error } = await supabase.from('characters').insert({
-        player_id: form.player_id,
-        name: form.name.trim(),
-        first_name: form.first_name.trim(),
-        age,
-        character_type: form.character_type,
-        course_position: form.course_position.trim() || null,
-        housing: form.housing.trim() || null,
-      });
-
-      if (error) {
-        console.error(error);
-        setCharacterError('Impossible de créer ce personnage.');
-        setSavingCharacter(false);
-        return;
-      }
-    }
-
-    const { data, error: reloadError } = await supabase
-      .from('characters')
-      .select(
-        'id, player_id, name, first_name, age, character_type, course_position, housing, avatar_url'
-      )
-      .order('name', { ascending: true });
-
-    if (reloadError) {
-      console.error(reloadError);
-      setCharacterError('Personnage enregistré, mais la liste n’a pas pu être actualisée.');
-    } else {
-      setCharacters(data as Character[]);
-      setCharacterMessage(
-        editingId ? 'Personnage modifié avec succès.' : 'Personnage créé avec succès.'
+      const { error: updateError } = await supabase.rpc(
+        'admin_update_character',
+        {
+          p_character_id: editingId,
+          p_name: form.name.trim(),
+          p_first_name: form.first_name.trim(),
+          p_age: age,
+          p_character_type: form.character_type,
+          p_course_position: form.course_position.trim() || null,
+          p_housing: form.housing.trim() || null,
+        }
       );
-      resetCharacterForm();
+
+      if (updateError) {
+        console.error(updateError);
+        setError('Impossible de modifier ce personnage.');
+        setSaving(false);
+        return;
+      }
+
+      setMessage('Le personnage a été modifié.');
+    } else {
+      const { error: insertError } = await supabase
+        .from('characters')
+        .insert({
+          player_id: form.player_id,
+          name: form.name.trim(),
+          first_name: form.first_name.trim(),
+          age,
+          character_type: form.character_type,
+          course_position: form.course_position.trim() || null,
+          housing: form.housing.trim() || null,
+        });
+
+      if (insertError) {
+        console.error(insertError);
+        setError('Impossible de créer ce personnage.');
+        setSaving(false);
+        return;
+      }
+
+      setMessage('Le personnage a été créé.');
     }
 
-    setSavingCharacter(false);
+    resetForm();
+    await loadAdminData();
+    setSaving(false);
   };
 
-  const handleDeleteCharacter = async (characterId: string) => {
-    if (!window.confirm('Veux-tu vraiment supprimer ce personnage ?')) return;
+  const deleteCharacter = async (characterId: string) => {
+    const confirmed = window.confirm(
+      'Voulez-vous vraiment supprimer ce personnage ?'
+    );
 
-    setCharacterError('');
-    setCharacterMessage('');
+    if (!confirmed) return;
 
-    const { error } = await supabase
+    setError('');
+    setMessage('');
+
+    const { error: deleteError } = await supabase
       .from('characters')
       .delete()
       .eq('id', characterId);
 
-    if (error) {
-      console.error(error);
-      setCharacterError('Impossible de supprimer ce personnage.');
+    if (deleteError) {
+      console.error(deleteError);
+      setError('Impossible de supprimer ce personnage.');
       return;
     }
 
-    setCharacters((current) =>
-      current.filter((character) => character.id !== characterId)
+    setMessage('Le personnage a été supprimé.');
+
+    if (editingId === characterId) {
+      resetForm();
+    }
+
+    await loadAdminData();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-950 text-bone-100">
+        <p className="text-sm tracking-widest text-gold-300">
+          STERLING UNIVERSITY · CHARGEMENT
+        </p>
+      </div>
     );
+  }
 
-    if (editingId === characterId) resetCharacterForm();
+  if (!session) {
+    return <HomePage />;
+  }
 
-    setCharacterMessage('Personnage supprimé.');
-  };
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    setMode('choice');
-  };
-
-  const metadata = session?.user.user_metadata ?? {};
-  const displayName =
-    metadata.global_name ||
-    metadata.username ||
-    metadata.full_name ||
-    'Membre';
-
-  const pendingPlayers = players.filter(
-    (player) => player.registration_status === 'pending'
-  );
-
-  const otherPlayers = players.filter(
-    (player) => player.registration_status !== 'pending'
-  );
-
-  const statusLabel = (status: RegistrationStatus) => {
-    if (status === 'approved') return 'Accepté';
-    if (status === 'rejected') return 'Refusé';
-    return 'En attente';
-  };
-
-  const playerName = (playerId: string) => {
-    const player = players.find((item) => item.id === playerId);
-    return player?.discord_username || `Membre ${playerId.slice(0, 8)}`;
-  };
-
-  return (
-    <AppShell>
-      {loading || accessLoading ? (
-        <section className="flex flex-1 items-center justify-center">
-          <p className="text-sm tracking-widest text-gold-300">
-            CHARGEMENT DE STERLING CAMPUS...
-          </p>
-        </section>
-      ) : !session ? (
-        <HomePage />
-      ) : registrationStatus === null ? (
-        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <h1 className="text-2xl font-semibold text-bone-100">
-            Vérification de votre inscription
-          </h1>
-          <p className="mt-4 text-sm text-bone-300">
-            Impossible de vérifier votre accès. Veuillez réessayer en vous reconnectant.
-          </p>
-          <button onClick={handleSignOut} className="mt-8 text-gold-300 underline">
+  if (error && !isAdmin && registrationStatus === 'pending') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-950 px-6 text-center text-bone-100">
+        <div>
+          <h1 className="text-2xl font-semibold">Une erreur est survenue</h1>
+          <p className="mt-4 text-sm text-red-300">{error}</p>
+          <button
+            onClick={signOut}
+            className="mt-8 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300"
+          >
             Se déconnecter
           </button>
-        </section>
-      ) : registrationStatus === 'pending' ? (
-        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <span className="text-4xl">⌛</span>
-          <h1 className="mt-6 text-3xl font-semibold text-gold-300">
-            Demande en attente
-          </h1>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-bone-300">
-            Votre demande d'inscription à Sterling University a bien été reçue.
-            Elle sera examinée par l'administration. Vous pourrez accéder à votre
-            espace personnel dès qu'elle sera acceptée.
-          </p>
-          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
-            Se déconnecter
-          </button>
-        </section>
-      ) : registrationStatus === 'rejected' ? (
-        <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <span className="text-4xl">✕</span>
-          <h1 className="mt-6 text-3xl font-semibold text-bone-100">
-            Demande refusée
-          </h1>
-          <p className="mt-4 max-w-md text-sm text-bone-300">
-            Votre demande d'inscription n'a pas été acceptée.
-            Vous ne pouvez pas accéder à Sterling Campus.
-          </p>
-          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
-            Se déconnecter
-          </button>
-        </section>
-      ) : mode === 'choice' ? (
-        <section className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin && registrationStatus === 'pending') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-950 px-6 text-center text-bone-100">
+        <div className="max-w-lg">
           <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
             Sterling University
           </p>
-          <h1 className="mt-6 text-3xl font-semibold text-bone-100">
-            Bienvenue, {displayName}
+          <h1 className="mt-6 text-3xl font-semibold">
+            Demande en attente
           </h1>
-          <p className="mt-4 text-sm text-bone-300">
-            Choisissez l'espace que vous souhaitez rejoindre.
+          <p className="mt-4 text-sm leading-7 text-bone-300">
+            Votre demande d'inscription a bien été enregistrée. Elle doit
+            maintenant être examinée par l'administration.
           </p>
-
-          <div className="mt-10 grid w-full max-w-xl gap-5 sm:grid-cols-2">
-            {isAdmin && (
-              <button
-                onClick={() => setMode('admin')}
-                className="rounded-2xl border border-gold-500/40 bg-ink-900/80 p-8 text-left transition hover:border-gold-400 hover:bg-ink-800"
-              >
-                <span className="text-2xl">♛</span>
-                <h2 className="mt-5 text-xl font-semibold text-gold-300">
-                  Administration
-                </h2>
-                <p className="mt-3 text-sm text-bone-300">
-                  Gérer les joueurs et les personnages.
-                </p>
-              </button>
-            )}
-
-            <button
-              onClick={() => setMode('player')}
-              className="rounded-2xl border border-gold-500/20 bg-ink-900/80 p-8 text-left transition hover:border-gold-400 hover:bg-ink-800"
-            >
-              <span className="text-2xl">♙</span>
-              <h2 className="mt-5 text-xl font-semibold text-gold-300">
-                Mon espace joueur
-              </h2>
-              <p className="mt-3 text-sm text-bone-300">
-                Retrouver mes personnages et leurs téléphones.
-              </p>
-            </button>
-          </div>
-
-          <button onClick={handleSignOut} className="mt-10 text-sm text-bone-400 underline">
+          <p className="mt-3 text-sm text-bone-400">
+            Vous pourrez accéder à votre espace joueur après validation.
+          </p>
+          <button
+            onClick={signOut}
+            className="mt-8 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+          >
             Se déconnecter
           </button>
-        </section>
-      ) : mode === 'admin' ? (
-        <section className="flex flex-1 flex-col px-6 py-10">
-          <div className="mx-auto w-full max-w-4xl">
-            <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin && registrationStatus === 'rejected') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-950 px-6 text-center text-bone-100">
+        <div className="max-w-lg">
+          <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
+            Sterling University
+          </p>
+          <h1 className="mt-6 text-3xl font-semibold">
+            Demande refusée
+          </h1>
+          <p className="mt-4 text-sm leading-7 text-bone-300">
+            Votre demande d'accès à Sterling University n'a pas été acceptée.
+            Vous ne pouvez actuellement pas accéder à l'application.
+          </p>
+          <button
+            onClick={signOut}
+            className="mt-8 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AppShell>
+      <div className="min-h-screen bg-ink-950 text-bone-100">
+        <header className="flex items-center justify-between border-b border-gold-500/20 px-6 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
               Sterling University
             </p>
-            <h1 className="mt-4 text-3xl font-semibold text-bone-100">
-              Administration
-            </h1>
+            <p className="mt-1 text-xs text-bone-400">
+              {session.user.user_metadata?.global_name ||
+                session.user.user_metadata?.name ||
+                'Mon compte'}
+            </p>
+          </div>
 
-            <h2 className="mt-8 text-xl font-semibold text-gold-300">
-              Demandes en attente ({pendingPlayers.length})
-            </h2>
+          <button
+            onClick={signOut}
+            className="rounded-lg border border-white/10 px-4 py-2 text-xs text-bone-300 transition hover:border-gold-500/40 hover:text-gold-300"
+          >
+            Déconnexion
+          </button>
+        </header>
 
-            {playersLoading ? (
-              <p className="mt-5 text-sm text-bone-300">Chargement des joueurs...</p>
-            ) : pendingPlayers.length === 0 ? (
-              <p className="mt-5 rounded-xl border border-white/10 p-5 text-sm text-bone-300">
-                Aucune demande en attente pour le moment.
+        {isAdmin && mode === 'choice' && (
+          <main className="flex min-h-[75vh] items-center justify-center px-6 py-12">
+            <div className="w-full max-w-3xl">
+              <p className="text-center text-xs uppercase tracking-[0.35em] text-gold-300">
+                Sterling University
               </p>
-            ) : (
-              <div className="mt-5 space-y-4">
-                {pendingPlayers.map((player) => (
-                  <article key={player.id} className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-5">
-                    <p className="font-semibold text-bone-100">
-                      {player.discord_username || `Membre ${player.id.slice(0, 8)}`}
-                    </p>
-                    <p className="mt-1 text-xs text-bone-400">
-                      Inscription : {new Date(player.created_at).toLocaleDateString('fr-FR')}
-                    </p>
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <button
-                        disabled={updatingId === player.id}
-                        onClick={() => handlePlayerStatus(player.id, 'approved')}
-                        className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
-                      >
-                        Accepter
-                      </button>
-                      <button
-                        disabled={updatingId === player.id}
-                        onClick={() => handlePlayerStatus(player.id, 'rejected')}
-                        className="rounded-lg border border-red-500/40 px-4 py-2 text-sm text-red-300 disabled:opacity-50"
-                      >
-                        Refuser
-                      </button>
-                    </div>
-                  </article>
-                ))}
+              <h1 className="mt-5 text-center text-3xl font-semibold">
+                Bienvenue
+              </h1>
+              <p className="mt-3 text-center text-sm text-bone-300">
+                Choisissez l'espace auquel vous souhaitez accéder.
+              </p>
+
+              <div className="mt-10 grid gap-6 sm:grid-cols-2">
+                <button
+                  onClick={() => setMode('admin')}
+                  className="rounded-2xl border border-gold-500/30 bg-ink-900/70 p-8 text-left transition hover:border-gold-400 hover:bg-ink-900"
+                >
+                  <span className="text-3xl">⚜</span>
+                  <h2 className="mt-5 text-xl font-semibold text-gold-300">
+                    Administration
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-bone-300">
+                    Gérer les inscriptions, les joueurs et les personnages de
+                    l'université.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => setMode('player')}
+                  className="rounded-2xl border border-white/10 bg-ink-900/70 p-8 text-left transition hover:border-gold-500/40"
+                >
+                  <span className="text-3xl">♙</span>
+                  <h2 className="mt-5 text-xl font-semibold">
+                    Mon espace joueur
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-bone-300">
+                    Retrouver vos personnages et accéder à leur espace
+                    personnel.
+                  </p>
+                </button>
               </div>
-            )}
+            </div>
+          </main>
+        )}
 
-            {playersError && <p className="mt-4 text-sm text-red-300">{playersError}</p>}
+        {isAdmin && mode === 'admin' && (
+          <main className="mx-auto w-full max-w-6xl px-6 py-10">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
+                  Espace administrateur
+                </p>
+                <h1 className="mt-3 text-3xl font-semibold">
+                  Administration
+                </h1>
+              </div>
 
-            <h2 className="mt-12 text-xl font-semibold text-bone-100">
-              Autres comptes ({otherPlayers.length})
-            </h2>
-
-            <div className="mt-5 space-y-3">
-              {otherPlayers.map((player) => (
-                <article key={player.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/50 p-4">
-                  <div>
-                    <p className="font-medium text-bone-100">
-                      {player.discord_username || `Membre ${player.id.slice(0, 8)}`}
-                    </p>
-                    <p className="mt-1 text-xs text-bone-400">
-                      {statusLabel(player.registration_status)}
-                    </p>
-                  </div>
-                  {player.registration_status === 'approved' ? (
-                    <button
-                      disabled={updatingId === player.id}
-                      onClick={() => handlePlayerStatus(player.id, 'rejected')}
-                      className="rounded-lg border border-red-500/40 px-3 py-2 text-xs text-red-300 disabled:opacity-50"
-                    >
-                      Refuser l'accès
-                    </button>
-                  ) : (
-                    <button
-                      disabled={updatingId === player.id}
-                      onClick={() => handlePlayerStatus(player.id, 'approved')}
-                      className="rounded-lg border border-gold-500/40 px-3 py-2 text-xs text-gold-300 disabled:opacity-50"
-                    >
-                      Accepter
-                    </button>
-                  )}
-                </article>
-              ))}
+              <button
+                onClick={() => setMode('choice')}
+                className="rounded-xl border border-gold-500/30 px-5 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+              >
+                Changer d'espace
+              </button>
             </div>
 
-            <div className="my-12 border-t border-gold-500/20" />
+            {message && (
+              <p className="mt-6 rounded-xl border border-green-500/20 bg-green-500/5 p-4 text-sm text-green-300">
+                {message}
+              </p>
+            )}
 
-            <h2 className="text-2xl font-semibold text-gold-300">
-              Gestion des personnages
-            </h2>
-            <p className="mt-2 text-sm text-bone-300">
-              Crée et attribue les personnages aux joueurs dont l'inscription est acceptée.
-            </p>
+            {error && (
+              <p className="mt-6 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+                {error}
+              </p>
+            )}
 
-            <div className="mt-6 rounded-2xl border border-gold-500/20 bg-ink-900/70 p-5 sm:p-7">
-              <h3 className="text-lg font-semibold text-bone-100">
+            <section className="mt-12">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Demandes en attente</h2>
+                <span className="text-sm text-gold-300">
+                  {players.filter((p) => p.registration_status === 'pending').length}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {players.filter((p) => p.registration_status === 'pending').length === 0 ? (
+                  <p className="rounded-xl border border-white/10 p-5 text-sm text-bone-400">
+                    Aucune demande en attente.
+                  </p>
+                ) : (
+                  players
+                    .filter((p) => p.registration_status === 'pending')
+                    .map((player) => (
+                      <div
+                        key={player.id}
+                        className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gold-500/20 bg-ink-900/60 p-5"
+                      >
+                        <div>
+                          <p className="font-medium">
+                            {player.discord_username || 'Membre Discord'}
+                          </p>
+                          <p className="mt-1 text-xs text-bone-400">
+                            Demande reçue le{' '}
+                            {new Date(player.created_at).toLocaleDateString('fr-FR')}
+                          </p>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => updatePlayerStatus(player.id, 'approved')}
+                            className="rounded-lg border border-green-500/30 px-4 py-2 text-xs text-green-300 hover:bg-green-500/10"
+                          >
+                            Accepter
+                          </button>
+                          <button
+                            onClick={() => updatePlayerStatus(player.id, 'rejected')}
+                            className="rounded-lg border border-red-500/30 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
+                          >
+                            Refuser
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </section>
+
+            <section className="mt-12">
+              <h2 className="text-xl font-semibold">Autres comptes</h2>
+              <div className="mt-5 space-y-3">
+                {players
+                  .filter((p) => p.registration_status !== 'pending')
+                  .map((player) => (
+                    <div
+                      key={player.id}
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-ink-900/50 p-5"
+                    >
+                      <div>
+                        <p className="font-medium">
+                          {player.discord_username || 'Membre Discord'}
+                        </p>
+                        <p className="mt-1 text-xs text-bone-400">
+                          {player.registration_status === 'approved'
+                            ? 'Compte accepté'
+                            : 'Compte refusé'}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        {player.registration_status === 'approved' ? (
+                          <button
+                            onClick={() => updatePlayerStatus(player.id, 'rejected')}
+                            className="rounded-lg border border-red-500/30 px-4 py-2 text-xs text-red-300"
+                          >
+                            Révoquer l'accès
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => updatePlayerStatus(player.id, 'approved')}
+                            className="rounded-lg border border-green-500/30 px-4 py-2 text-xs text-green-300"
+                          >
+                            Réaccepter
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </section>
+
+            <section className="mt-14 border-t border-gold-500/20 pt-10">
+              <p className="text-xs uppercase tracking-[0.3em] text-gold-300">
+                Gestion des personnages
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold">
                 {editingId ? 'Modifier un personnage' : 'Créer un personnage'}
-              </h3>
+              </h2>
+              <p className="mt-2 text-sm text-bone-400">
+                Ajoutez ici les personnages dont la fiche a déjà été validée
+                sur Discord.
+              </p>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <label className="text-sm text-bone-300">
-                  Joueur
+              <form
+                onSubmit={saveCharacter}
+                className="mt-7 grid gap-5 rounded-2xl border border-gold-500/20 bg-ink-900/60 p-6 sm:grid-cols-2"
+              >
+                <label className="text-sm text-bone-300 sm:col-span-2">
+                  Joueur associé
                   <select
+                    required
+                    disabled={Boolean(editingId)}
                     value={form.player_id}
-                    onChange={(event) => handleFormChange('player_id', event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    onChange={(e) => updateForm('player_id', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100 disabled:opacity-50"
                   >
-                    <option value="">Choisir un joueur</option>
+                    <option value="">Sélectionner un joueur</option>
                     {players
-                      .filter((player) => player.registration_status === 'approved')
+                      .filter((p) => p.registration_status === 'approved')
                       .map((player) => (
                         <option key={player.id} value={player.id}>
-                          {player.discord_username || `Membre ${player.id.slice(0, 8)}`}
+                          {player.discord_username || 'Membre Discord'}
                         </option>
                       ))}
                   </select>
                 </label>
 
                 <label className="text-sm text-bone-300">
-                  Statut
-                  <select
-                    value={form.character_type}
-                    onChange={(event) => handleFormChange('character_type', event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
-                  >
-                    <option value="Étudiant(e)">Étudiant(e)</option>
-                    <option value="Membre du personnel">Membre du personnel</option>
-                  </select>
-                </label>
-
-                <label className="text-sm text-bone-300">
                   Nom
                   <input
+                    required
                     value={form.name}
-                    onChange={(event) => handleFormChange('name', event.target.value)}
-                    placeholder="Nom de famille"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    onChange={(e) => updateForm('name', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
+                    placeholder="Nom du personnage"
                   />
                 </label>
 
                 <label className="text-sm text-bone-300">
                   Prénom
                   <input
+                    required
                     value={form.first_name}
-                    onChange={(event) => handleFormChange('first_name', event.target.value)}
-                    placeholder="Prénom"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    onChange={(e) => updateForm('first_name', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
+                    placeholder="Prénom du personnage"
                   />
                 </label>
 
@@ -642,139 +681,141 @@ export default function App() {
                     min="1"
                     max="120"
                     value={form.age}
-                    onChange={(event) => handleFormChange('age', event.target.value)}
+                    onChange={(e) => updateForm('age', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
                     placeholder="Âge"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
                   />
                 </label>
 
                 <label className="text-sm text-bone-300">
-                  Poste ou cursus
+                  Statut
+                  <select
+                    value={form.character_type}
+                    onChange={(e) => updateForm('character_type', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
+                  >
+                    <option value="Étudiant(e)">Étudiant(e)</option>
+                    <option value="Membre du personnel">Membre du personnel</option>
+                  </select>
+                </label>
+
+                <label className="text-sm text-bone-300">
+                  Poste ou cours
                   <input
                     value={form.course_position}
-                    onChange={(event) => handleFormChange('course_position', event.target.value)}
-                    placeholder="Ex. Psychologue ou Droit"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    onChange={(e) => updateForm('course_position', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
+                    placeholder="Ex. Droit, professeur..."
                   />
                 </label>
 
-                <label className="text-sm text-bone-300 sm:col-span-2">
+                <label className="text-sm text-bone-300">
                   Logement
                   <input
                     value={form.housing}
-                    onChange={(event) => handleFormChange('housing', event.target.value)}
-                    placeholder="Résidence, fraternité, sororité..."
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-3 text-bone-100"
+                    onChange={(e) => updateForm('housing', e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-4 py-3 text-sm text-bone-100"
+                    placeholder="Résidence, fraternité..."
                   />
                 </label>
-              </div>
 
-              {characterError && (
-                <p className="mt-4 text-sm text-red-300">{characterError}</p>
-              )}
-              {characterMessage && (
-                <p className="mt-4 text-sm text-green-300">{characterMessage}</p>
-              )}
-
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  disabled={savingCharacter}
-                  onClick={handleSaveCharacter}
-                  className="rounded-lg bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 disabled:opacity-50"
-                >
-                  {savingCharacter ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Créer le personnage'}
-                </button>
-                {editingId && (
+                <div className="flex flex-wrap gap-3 sm:col-span-2">
                   <button
-                    onClick={resetCharacterForm}
-                    className="rounded-lg border border-white/20 px-5 py-3 text-sm text-bone-300"
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-xl bg-gold-500 px-6 py-3 text-sm font-medium text-ink-950 transition hover:bg-gold-400 disabled:opacity-50"
                   >
-                    Annuler
+                    {saving
+                      ? 'Enregistrement...'
+                      : editingId
+                        ? 'Enregistrer les modifications'
+                        : 'Créer le personnage'}
                   </button>
-                )}
+
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="rounded-xl border border-white/10 px-6 py-3 text-sm text-bone-300"
+                    >
+                      Annuler
+                    </button>
+                  )}
+                </div>
+              </form>
+
+              <div className="mt-10">
+                <h3 className="text-lg font-semibold">
+                  Personnages enregistrés ({characters.length})
+                </h3>
+
+                <div className="mt-5 space-y-3">
+                  {characters.length === 0 ? (
+                    <p className="rounded-xl border border-white/10 p-5 text-sm text-bone-400">
+                      Aucun personnage enregistré pour le moment.
+                    </p>
+                  ) : (
+                    characters.map((character) => {
+                      const owner = players.find(
+                        (p) => p.id === character.player_id
+                      );
+
+                      return (
+                        <div
+                          key={character.id}
+                          className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-ink-900/50 p-5"
+                        >
+                          <div>
+                            <p className="font-medium">
+                              {character.first_name} {character.name}
+                            </p>
+                            <p className="mt-1 text-xs text-bone-400">
+                              {character.character_type || 'Personnage'} ·{' '}
+                              {owner?.discord_username || 'Joueur inconnu'}
+                            </p>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => editCharacter(character)}
+                              className="rounded-lg border border-gold-500/30 px-4 py-2 text-xs text-gold-300"
+                            >
+                              Modifier
+                            </button>
+                            <button
+                              onClick={() => deleteCharacter(character.id)}
+                              className="rounded-lg border border-red-500/30 px-4 py-2 text-xs text-red-300"
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
+            </section>
+          </main>
+        )}
 
-            <h3 className="mt-10 text-xl font-semibold text-bone-100">
-              Personnages enregistrés ({characters.length})
-            </h3>
-
-            {charactersLoading ? (
-              <p className="mt-5 text-sm text-bone-300">Chargement des personnages...</p>
-            ) : characterError && characters.length === 0 ? (
-              <p className="mt-5 text-sm text-red-300">{characterError}</p>
-            ) : characters.length === 0 ? (
-              <p className="mt-5 rounded-xl border border-white/10 p-5 text-sm text-bone-300">
-                Aucun personnage n'a encore été créé.
-              </p>
-            ) : (
-              <div className="mt-5 space-y-3">
-                {characters.map((character) => (
-                  <article key={character.id} className="rounded-xl border border-white/10 bg-ink-900/50 p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-bone-100">
-                          {character.first_name} {character.name}
-                        </p>
-                        <p className="mt-1 text-xs text-gold-300">
-                          {character.character_type || 'Statut non renseigné'}
-                        </p>
-                        <p className="mt-2 text-sm text-bone-300">
-                          Joueur : {playerName(character.player_id)}
-                        </p>
-                        <p className="mt-1 text-xs text-bone-400">
-                          {character.age ? `${character.age} ans` : 'Âge non renseigné'}
-                          {character.course_position ? ` · ${character.course_position}` : ''}
-                          {character.housing ? ` · ${character.housing}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditCharacter(character)}
-                          className="rounded-lg border border-gold-500/40 px-3 py-2 text-xs text-gold-300"
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCharacter(character.id)}
-                          className="rounded-lg border border-red-500/40 px-3 py-2 text-xs text-red-300"
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+        {(!isAdmin || mode === 'player') && (
+          <div>
+            {isAdmin && (
+              <div className="mx-auto max-w-5xl px-6 pt-6">
+                <button
+                  onClick={() => setMode('choice')}
+                  className="rounded-xl border border-gold-500/30 px-5 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+                >
+                  Retour au choix des espaces
+                </button>
               </div>
             )}
 
-            <button
-              onClick={() => setMode('choice')}
-              className="mt-10 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
-            >
-              Retour au choix des espaces
-            </button>
+            <PlayerSpace playerId={session.user.id} />
           </div>
-        </section>
-      ) : (
-        <section className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-          <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
-            Sterling University
-          </p>
-          <h1 className="mt-6 text-3xl font-semibold text-bone-100">
-            Mon espace joueur
-          </h1>
-          <p className="mt-4 text-sm text-bone-300">
-            Vos personnages seront bientôt disponibles.
-          </p>
-          <button
-            onClick={() => setMode('choice')}
-            className="mt-10 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
-          >
-            Retour au choix des espaces
-          </button>
-        </section>
-      )}
+        )}
+      </div>
     </AppShell>
   );
 }
