@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import ContactsApp from '@/components/ContactsApp';
+import MessagesApp from '@/components/MessagesApp';
 
 type Character = {
   id: string;
@@ -18,18 +19,21 @@ type Props = {
   playerId: string;
 };
 
+type PhoneApp = 'home' | 'contacts' | 'messages';
+
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
     useState<Character | null>(null);
-  const [showContacts, setShowContacts] = useState(false);
+  const [activeApp, setActiveApp] = useState<PhoneApp>('home');
+  const [messageContactId, setMessageContactId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let mounted = true;
 
-    const loadCharacters = async () => {
+    async function loadCharacters() {
       setLoading(true);
       setError('');
 
@@ -51,7 +55,7 @@ export default function PlayerSpace({ playerId }: Props) {
       }
 
       setLoading(false);
-    };
+    }
 
     loadCharacters();
 
@@ -59,6 +63,16 @@ export default function PlayerSpace({ playerId }: Props) {
       mounted = false;
     };
   }, [playerId]);
+
+  function openMessages(contactId?: string) {
+    setMessageContactId(contactId || null);
+    setActiveApp('messages');
+  }
+
+  function backToPhone() {
+    setActiveApp('home');
+    setMessageContactId(null);
+  }
 
   if (loading) {
     return (
@@ -107,32 +121,95 @@ export default function PlayerSpace({ playerId }: Props) {
     );
   }
 
-  if (selectedCharacter && showContacts) {
+  if (!selectedCharacter) {
     return (
-      <section className="flex flex-1 flex-col px-4 py-6">
-        <button
-          onClick={() => setShowContacts(false)}
-          className="mb-6 w-fit rounded-lg border border-gold-500/30 px-4 py-2 text-sm text-gold-300 transition hover:bg-gold-500/10"
-        >
-          ← Retour au téléphone
-        </button>
+      <section className="flex flex-1 flex-col px-6 py-10">
+        <div className="mx-auto w-full max-w-5xl">
+          <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
+            Sterling University
+          </p>
 
-        <ContactsApp characterId={selectedCharacter.id} />
+          <h1 className="mt-4 text-3xl font-semibold text-bone-100">
+            Mon espace joueur
+          </h1>
+
+          <p className="mt-3 text-sm text-bone-300">
+            Sélectionne un personnage pour accéder à son téléphone personnel.
+          </p>
+
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {characters.map((character) => (
+              <button
+                key={character.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCharacter(character);
+                  setActiveApp('home');
+                }}
+                className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/70 text-left transition hover:border-gold-400/60"
+              >
+                <div className="flex h-56 items-center justify-center bg-ink-950">
+                  {character.avatar_url ? (
+                    <img
+                      src={character.avatar_url}
+                      alt={`${character.first_name || ''} ${character.name}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center">
+                      <span className="text-6xl text-gold-300/60">♙</span>
+                      <p className="mt-3 text-xs uppercase tracking-widest text-bone-400">
+                        Portrait à ajouter
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5">
+                  <p className="text-xs uppercase tracking-[0.2em] text-gold-300">
+                    {character.character_type || 'Personnage'}
+                  </p>
+
+                  <h2 className="mt-2 text-xl font-semibold text-bone-100">
+                    {character.first_name} {character.name}
+                  </h2>
+
+                  {character.age !== null && (
+                    <p className="mt-3 text-sm text-bone-300">
+                      {character.age} ans
+                    </p>
+                  )}
+
+                  <p className="mt-5 border-t border-white/10 pt-4 text-center text-sm text-gold-300">
+                    Ouvrir le téléphone →
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
     );
   }
 
-  if (selectedCharacter) {
-    return (
-      <section className="flex flex-1 flex-col px-6 py-10">
-        <div className="mx-auto w-full max-w-3xl">
-          <button
-            onClick={() => setSelectedCharacter(null)}
-            className="mb-6 text-sm text-gold-300 hover:text-gold-200"
-          >
-            ← Retour à mes personnages
-          </button>
+  return (
+    <section className="flex flex-1 flex-col px-4 py-6 sm:px-6">
+      <div className="mx-auto w-full max-w-5xl">
+        <button
+          type="button"
+          onClick={() => {
+            if (activeApp !== 'home') {
+              backToPhone();
+            } else {
+              setSelectedCharacter(null);
+            }
+          }}
+          className="mb-6 text-sm text-gold-300 transition hover:text-gold-200"
+        >
+          ← {activeApp === 'home' ? 'Retour à mes personnages' : 'Retour au téléphone'}
+        </button>
 
+        {activeApp === 'home' && (
           <div className="overflow-hidden rounded-3xl border border-gold-500/20 bg-ink-900/70">
             <div className="flex h-64 items-center justify-center bg-ink-950">
               {selectedCharacter.avatar_url ? (
@@ -172,9 +249,10 @@ export default function PlayerSpace({ playerId }: Props) {
                   Téléphone personnel
                 </p>
 
-                <div className="mt-6 grid grid-cols-2 gap-4">
+                <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
                   <button
-                    onClick={() => setShowContacts(true)}
+                    type="button"
+                    onClick={() => setActiveApp('contacts')}
                     className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
                     <span className="text-3xl">👥</span>
@@ -183,85 +261,36 @@ export default function PlayerSpace({ playerId }: Props) {
                     </p>
                   </button>
 
-                  <div className="rounded-2xl border border-gold-500/20 bg-ink-950/60 p-5 opacity-60">
+                  <button
+                    type="button"
+                    onClick={() => openMessages()}
+                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
                     <span className="text-3xl">✉️</span>
                     <p className="mt-3 text-sm font-medium text-bone-100">
                       Messages
                     </p>
-                    <p className="mt-1 text-xs text-bone-400">
-                      À connecter
-                    </p>
-                  </div>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
-    );
-  }
+        )}
 
-  return (
-    <section className="flex flex-1 flex-col px-6 py-10">
-      <div className="mx-auto w-full max-w-5xl">
-        <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
-          Sterling University
-        </p>
+        {activeApp === 'contacts' && (
+          <ContactsApp
+            characterId={selectedCharacter.id}
+            onOpenMessages={(contact) => openMessages(contact.id)}
+          />
+        )}
 
-        <h1 className="mt-4 text-3xl font-semibold text-bone-100">
-          Mon espace joueur
-        </h1>
-
-        <p className="mt-3 text-sm text-bone-300">
-          Sélectionne un personnage pour accéder à son téléphone personnel.
-        </p>
-
-        <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {characters.map((character) => (
-            <button
-              key={character.id}
-              onClick={() => setSelectedCharacter(character)}
-              className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/70 text-left transition hover:border-gold-400/60"
-            >
-              <div className="flex h-56 items-center justify-center bg-ink-950">
-                {character.avatar_url ? (
-                  <img
-                    src={character.avatar_url}
-                    alt={`${character.first_name || ''} ${character.name}`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="text-center">
-                    <span className="text-6xl text-gold-300/60">♙</span>
-                    <p className="mt-3 text-xs uppercase tracking-widest text-bone-400">
-                      Portrait à ajouter
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-5">
-                <p className="text-xs uppercase tracking-[0.2em] text-gold-300">
-                  {character.character_type || 'Personnage'}
-                </p>
-
-                <h2 className="mt-2 text-xl font-semibold text-bone-100">
-                  {character.first_name} {character.name}
-                </h2>
-
-                {character.age !== null && (
-                  <p className="mt-3 text-sm text-bone-300">
-                    {character.age} ans
-                  </p>
-                )}
-
-                <p className="mt-5 border-t border-white/10 pt-4 text-center text-sm text-gold-300">
-                  Ouvrir le téléphone →
-                </p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {activeApp === 'messages' && (
+          <MessagesApp
+            key={`${selectedCharacter.id}-${messageContactId || 'all'}`}
+            characterId={selectedCharacter.id}
+            initialContactId={messageContactId}
+          />
+        )}
       </div>
     </section>
   );
