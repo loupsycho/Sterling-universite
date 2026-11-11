@@ -1,9 +1,11 @@
+
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import ContactsApp from '@/components/ContactsApp';
 import MessagesApp from '@/components/MessagesApp';
 import InstagramApp from '@/components/InstagramApp';
 import SecretScoop from '@/components/SecretScoop';
+import AgendaApp from '@/components/AgendaApp';
 
 type Character = {
   id: string;
@@ -20,7 +22,13 @@ type Props = {
   playerId: string;
 };
 
-type PhoneApp = 'home' | 'contacts' | 'messages' | 'instagram' | 'scoop';
+type PhoneApp =
+  | 'home'
+  | 'contacts'
+  | 'messages'
+  | 'instagram'
+  | 'scoop'
+  | 'agenda';
 
 type SavedSession = {
   characterId: string | null;
@@ -41,7 +49,10 @@ function getSavedSession(playerId: string): SavedSession {
   };
 
   try {
-    const saved = localStorage.getItem(`sterling_player_session_${playerId}`);
+    const saved = localStorage.getItem(
+      `sterling_player_session_${playerId}`
+    );
+
     if (!saved) return emptySession;
 
     const parsed = JSON.parse(saved);
@@ -52,7 +63,8 @@ function getSavedSession(playerId: string): SavedSession {
         parsed.activeApp === 'contacts' ||
         parsed.activeApp === 'messages' ||
         parsed.activeApp === 'instagram' ||
-        parsed.activeApp === 'scoop'
+        parsed.activeApp === 'scoop' ||
+        parsed.activeApp === 'agenda'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
@@ -65,13 +77,16 @@ function getSavedSession(playerId: string): SavedSession {
 function getAvatarStoragePath(url: string | null) {
   if (!url) return null;
 
-  const marker = '/storage/v1/object/public/character-avatars/';
+  const marker =
+    '/storage/v1/object/public/character-avatars/';
   const index = url.indexOf(marker);
 
   if (index === -1) return null;
 
   try {
-    return decodeURIComponent(url.slice(index + marker.length).split('?')[0]);
+    return decodeURIComponent(
+      url.slice(index + marker.length).split('?')[0]
+    );
   } catch {
     return null;
   }
@@ -82,15 +97,20 @@ const CROP_STEP = 20;
 
 export default function PlayerSpace({ playerId }: Props) {
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(
-    () => getSavedSession(playerId).characterId
-  );
+  const [selectedCharacterId, setSelectedCharacterId] =
+    useState<string | null>(
+      () => getSavedSession(playerId).characterId
+    );
+
   const [activeApp, setActiveApp] = useState<PhoneApp>(
     () => getSavedSession(playerId).activeApp
   );
-  const [messageContactId, setMessageContactId] = useState<string | null>(
-    () => getSavedSession(playerId).messageContactId
-  );
+
+  const [messageContactId, setMessageContactId] =
+    useState<string | null>(
+      () => getSavedSession(playerId).messageContactId
+    );
+
   const [sessionRestored, setSessionRestored] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -100,10 +120,13 @@ export default function PlayerSpace({ playerId }: Props) {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropUrl, setCropUrl] = useState('');
   const [cropZoom, setCropZoom] = useState(1);
-  const [cropPosition, setCropPosition] = useState<CropPosition>({
-    x: 0,
-    y: 0,
-  });
+
+  const [cropPosition, setCropPosition] =
+    useState<CropPosition>({
+      x: 0,
+      y: 0,
+    });
+
   const [cropImageSize, setCropImageSize] = useState({
     width: 0,
     height: 0,
@@ -112,8 +135,9 @@ export default function PlayerSpace({ playerId }: Props) {
   const cropImageRef = useRef<HTMLImageElement>(null);
 
   const selectedCharacter =
-    characters.find((character) => character.id === selectedCharacterId) ||
-    null;
+    characters.find(
+      (character) => character.id === selectedCharacterId
+    ) || null;
 
   const baseScale =
     cropImageSize.width && cropImageSize.height
@@ -123,8 +147,11 @@ export default function PlayerSpace({ playerId }: Props) {
         )
       : 1;
 
-  const renderedWidth = cropImageSize.width * baseScale * cropZoom;
-  const renderedHeight = cropImageSize.height * baseScale * cropZoom;
+  const renderedWidth =
+    cropImageSize.width * baseScale * cropZoom;
+
+  const renderedHeight =
+    cropImageSize.height * baseScale * cropZoom;
 
   function clampPosition(x: number, y: number): CropPosition {
     return {
@@ -133,7 +160,9 @@ export default function PlayerSpace({ playerId }: Props) {
     };
   }
 
-  function moveCrop(direction: 'up' | 'down' | 'left' | 'right') {
+  function moveCrop(
+    direction: 'up' | 'down' | 'left' | 'right'
+  ) {
     setCropPosition((current) => {
       let x = current.x;
       let y = current.y;
@@ -149,9 +178,10 @@ export default function PlayerSpace({ playerId }: Props) {
 
   function handleZoomChange(value: number) {
     const newZoom = Math.min(3, Math.max(1, value));
-
-    const newWidth = cropImageSize.width * baseScale * newZoom;
-    const newHeight = cropImageSize.height * baseScale * newZoom;
+    const newWidth =
+      cropImageSize.width * baseScale * newZoom;
+    const newHeight =
+      cropImageSize.height * baseScale * newZoom;
 
     setCropZoom(newZoom);
     setCropPosition({
@@ -176,7 +206,10 @@ export default function PlayerSpace({ playerId }: Props) {
 
     const width = image.naturalWidth;
     const height = image.naturalHeight;
-    const scale = Math.max(CROP_SIZE / width, CROP_SIZE / height);
+    const scale = Math.max(
+      CROP_SIZE / width,
+      CROP_SIZE / height
+    );
 
     setCropImageSize({ width, height });
     setCropPosition({
@@ -206,7 +239,9 @@ export default function PlayerSpace({ playerId }: Props) {
         console.error(error);
         setError('Impossible de charger tes personnages.');
       } else {
-        const loadedCharacters = (data || []) as Character[];
+        const loadedCharacters =
+          (data || []) as Character[];
+
         setCharacters(loadedCharacters);
 
         const saved = getSavedSession(playerId);
@@ -214,7 +249,8 @@ export default function PlayerSpace({ playerId }: Props) {
         if (
           saved.characterId &&
           loadedCharacters.some(
-            (character) => character.id === saved.characterId
+            (character) =>
+              character.id === saved.characterId
           )
         ) {
           setSelectedCharacterId(saved.characterId);
@@ -265,15 +301,23 @@ export default function PlayerSpace({ playerId }: Props) {
     setAvatarError('');
     setAvatarMessage('');
 
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+    ];
 
     if (!allowedTypes.includes(file.type)) {
-      setAvatarError('Choisis une image au format JPG, PNG ou WebP.');
+      setAvatarError(
+        'Choisis une image au format JPG, PNG ou WebP.'
+      );
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setAvatarError('La photo ne doit pas dépasser 5 Mo.');
+      setAvatarError(
+        'La photo ne doit pas dépasser 5 Mo.'
+      );
       return;
     }
 
@@ -282,7 +326,11 @@ export default function PlayerSpace({ playerId }: Props) {
     try {
       const image = cropImageRef.current;
 
-      if (!image || !cropImageSize.width || !cropImageSize.height) {
+      if (
+        !image ||
+        !cropImageSize.width ||
+        !cropImageSize.height
+      ) {
         throw new Error("L'image n'est pas encore prête.");
       }
 
@@ -293,7 +341,9 @@ export default function PlayerSpace({ playerId }: Props) {
       const context = canvas.getContext('2d');
 
       if (!context) {
-        throw new Error('Impossible de préparer le recadrage.');
+        throw new Error(
+          'Impossible de préparer le recadrage.'
+        );
       }
 
       context.fillStyle = '#ffffff';
@@ -307,23 +357,34 @@ export default function PlayerSpace({ playerId }: Props) {
         renderedHeight * 2
       );
 
-      const croppedBlob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error("Impossible de créer l'image recadrée."));
-          },
-          'image/jpeg',
-          0.92
-        );
-      });
+      const croppedBlob = await new Promise<Blob>(
+        (resolve, reject) => {
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob);
+              else
+                reject(
+                  new Error(
+                    "Impossible de créer l'image recadrée."
+                  )
+                );
+            },
+            'image/jpeg',
+            0.92
+          );
+        }
+      );
 
-      const croppedFile = new File([croppedBlob], 'portrait.jpg', {
-        type: 'image/jpeg',
-      });
+      const croppedFile = new File(
+        [croppedBlob],
+        'portrait.jpg',
+        { type: 'image/jpeg' }
+      );
 
       if (croppedFile.size > 5 * 1024 * 1024) {
-        throw new Error('La photo recadrée dépasse 5 Mo.');
+        throw new Error(
+          'La photo recadrée dépasse 5 Mo.'
+        );
       }
 
       const oldAvatarPath = getAvatarStoragePath(
@@ -357,7 +418,9 @@ export default function PlayerSpace({ playerId }: Props) {
       if (updateError) {
         console.error(updateError);
 
-        await supabase.storage.from('character-avatars').remove([filePath]);
+        await supabase.storage
+          .from('character-avatars')
+          .remove([filePath]);
 
         throw new Error(
           "La photo a été envoyée, mais n'a pas pu être enregistrée."
@@ -401,15 +464,23 @@ export default function PlayerSpace({ playerId }: Props) {
     setAvatarError('');
     setAvatarMessage('');
 
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+    ];
 
     if (!allowedTypes.includes(file.type)) {
-      setAvatarError('Choisis une image au format JPG, PNG ou WebP.');
+      setAvatarError(
+        'Choisis une image au format JPG, PNG ou WebP.'
+      );
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setAvatarError('La photo ne doit pas dépasser 5 Mo.');
+      setAvatarError(
+        'La photo ne doit pas dépasser 5 Mo.'
+      );
       return;
     }
 
@@ -425,7 +496,13 @@ export default function PlayerSpace({ playerId }: Props) {
   async function handleAvatarDelete() {
     if (!selectedCharacter?.avatar_url) return;
 
-    if (!window.confirm('Veux-tu vraiment supprimer cette photo ?')) return;
+    if (
+      !window.confirm(
+        'Veux-tu vraiment supprimer cette photo ?'
+      )
+    ) {
+      return;
+    }
 
     setAvatarLoading(true);
     setAvatarError('');
@@ -574,7 +651,10 @@ export default function PlayerSpace({ playerId }: Props) {
                     />
                   ) : (
                     <div className="text-center">
-                      <span className="text-6xl text-gold-300/60">♙</span>
+                      <span className="text-6xl text-gold-300/60">
+                        ♙
+                      </span>
+
                       <p className="mt-3 text-xs uppercase tracking-widest text-bone-400">
                         Portrait à ajouter
                       </p>
@@ -639,7 +719,9 @@ export default function PlayerSpace({ playerId }: Props) {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-7xl text-gold-300/60">♙</span>
+                <span className="text-7xl text-gold-300/60">
+                  ♙
+                </span>
               )}
             </div>
 
@@ -658,7 +740,9 @@ export default function PlayerSpace({ playerId }: Props) {
                 )}
 
                 {selectedCharacter.course_position && (
-                  <p>Poste ou cursus : {selectedCharacter.course_position}</p>
+                  <p>
+                    Poste ou cursus : {selectedCharacter.course_position}
+                  </p>
                 )}
 
                 {selectedCharacter.housing && (
@@ -708,7 +792,9 @@ export default function PlayerSpace({ playerId }: Props) {
                 )}
 
                 {avatarError && (
-                  <p className="mt-4 text-sm text-red-300">{avatarError}</p>
+                  <p className="mt-4 text-sm text-red-300">
+                    {avatarError}
+                  </p>
                 )}
 
                 {avatarMessage && (
@@ -771,6 +857,17 @@ export default function PlayerSpace({ playerId }: Props) {
                       The Secret Scoop
                     </p>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveApp('agenda')}
+                    className="rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
+                    <span className="text-3xl">📅</span>
+                    <p className="mt-3 text-sm font-medium text-bone-100">
+                      Agenda
+                    </p>
+                  </button>
                 </div>
               </div>
             </div>
@@ -801,6 +898,13 @@ export default function PlayerSpace({ playerId }: Props) {
 
         {activeApp === 'scoop' && (
           <SecretScoop
+            key={selectedCharacter.id}
+            characterId={selectedCharacter.id}
+          />
+        )}
+
+        {activeApp === 'agenda' && (
+          <AgendaApp
             key={selectedCharacter.id}
             characterId={selectedCharacter.id}
           />
@@ -993,7 +1097,9 @@ export default function PlayerSpace({ playerId }: Props) {
                 onClick={() => handleAvatarUpload(cropFile)}
                 className="flex-1 rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400 disabled:opacity-50"
               >
-                {avatarLoading ? 'Enregistrement...' : 'Valider la photo'}
+                {avatarLoading
+                  ? 'Enregistrement...'
+                  : 'Valider la photo'}
               </button>
             </div>
           </div>
