@@ -229,6 +229,10 @@ export default function PlayerSpace({ playerId }: Props) {
   }
 
   function closeCrop() {
+    if (cropUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(cropUrl);
+    }
+
     setCropFile(null);
     setCropUrl('');
     setCropZoom(1);
@@ -707,29 +711,21 @@ export default function PlayerSpace({ playerId }: Props) {
       return;
     }
 
-    // Une URL de fichier local peut ne pas être correctement affichée
-    // dans certains WebView mobiles (notamment l'activité Discord Android).
-    // Le Data URL est plus compatible pour l'aperçu du recadrage.
-    const reader = new FileReader();
+    let url = '';
 
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') {
-        setAvatarError("Impossible de lire cette photo sur ton appareil.");
-        return;
-      }
+    try {
+      url = URL.createObjectURL(file);
+    } catch (error) {
+      console.error("Impossible de créer l'aperçu de la photo :", error);
+      setAvatarError("Impossible d'ouvrir cette photo sur ton appareil.");
+      return;
+    }
 
-      setCropFile(file);
-      setCropUrl(reader.result);
-      setCropZoom(1);
-      setCropImageSize({ width: 0, height: 0 });
-      setCropPosition({ x: 0, y: 0 });
-    };
-
-    reader.onerror = () => {
-      setAvatarError("Impossible de lire cette photo sur ton appareil.");
-    };
-
-    reader.readAsDataURL(file);
+    setCropFile(file);
+    setCropUrl(url);
+    setCropZoom(1);
+    setCropImageSize({ width: 0, height: 0 });
+    setCropPosition({ x: 0, y: 0 });
   }
 
   async function handleAvatarDelete() {
@@ -1260,8 +1256,11 @@ export default function PlayerSpace({ playerId }: Props) {
                   draggable={false}
                   style={{
                     position: 'absolute',
-                    width: renderedWidth,
-                    height: renderedHeight,
+                    // Laisser le navigateur utiliser la taille naturelle
+                    // jusqu'au chargement, sinon certains WebView mobiles
+                    // peuvent ne pas déclencher correctement onLoad avec 0x0.
+                    width: cropImageSize.width ? renderedWidth : 'auto',
+                    height: cropImageSize.height ? renderedHeight : 'auto',
                     maxWidth: 'none',
                     left: cropPosition.x,
                     top: cropPosition.y,
