@@ -196,6 +196,7 @@ export default function App() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [expandedCharacterPlayerId, setExpandedCharacterPlayerId] = useState<string | null>(null);
   const [charactersLoading, setCharactersLoading] = useState(false);
   const [characterError, setCharacterError] = useState('');
   const [characterMessage, setCharacterMessage] = useState('');
@@ -635,6 +636,20 @@ export default function App() {
     return player?.discord_username || `Membre ${playerId.slice(0, 8)}`;
   };
 
+  const characterGroups = players
+    .map((player) => ({
+      player,
+      characters: characters.filter((character) => character.player_id === player.id),
+    }))
+    .filter((group) => group.characters.length > 0)
+    .sort((a, b) =>
+      (a.player.discord_username || '').localeCompare(
+        b.player.discord_username || '',
+        'fr',
+        { sensitivity: 'base' }
+      )
+    );
+
   const occupiedResponsibilities = characters
     .filter((character) => character.id !== editingId)
     .map((character) => character.university_responsibility)
@@ -772,6 +787,13 @@ export default function App() {
       ) : mode === 'admin' && isAdmin ? (
         <section className="flex flex-1 flex-col px-6 py-10">
           <div className="mx-auto w-full max-w-4xl">
+            <button
+              onClick={() => setMode('choice')}
+              className="mb-6 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+            >
+              ← Retour au choix des espaces
+            </button>
+
             <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
               Sterling University
             </p>
@@ -1167,90 +1189,111 @@ export default function App() {
               </p>
             ) : (
               <div className="mt-5 space-y-3">
-                {characters.map((character) => (
-                  <article
-                    key={character.id}
-                    className="rounded-xl border border-white/10 bg-ink-900/50 p-5"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-bone-100">
-                          {character.first_name} {character.name}
-                        </p>
+                {characterGroups.map(({ player, characters: playerCharacters }) => {
+                  const isExpanded = expandedCharacterPlayerId === player.id;
 
-                        <p className="mt-1 text-xs text-gold-300">
-                          {character.character_type || 'Statut non renseigné'}
-                        </p>
+                  return (
+                    <article
+                      key={player.id}
+                      className="overflow-hidden rounded-xl border border-gold-500/20 bg-ink-900/50"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedCharacterPlayerId(isExpanded ? null : player.id)
+                        }
+                        className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-ink-800/60"
+                      >
+                        <span>
+                          <span className="block font-semibold text-bone-100">
+                            📁 {player.discord_username || `Membre ${player.id.slice(0, 8)}`}
+                          </span>
+                          <span className="mt-1 block text-xs text-bone-400">
+                            {playerCharacters.length} personnage{playerCharacters.length > 1 ? 's' : ''} enregistré{playerCharacters.length > 1 ? 's' : ''}
+                          </span>
+                        </span>
+                        <span className="text-lg text-gold-300">
+                          {isExpanded ? '−' : '+'}
+                        </span>
+                      </button>
 
-                        <p className="mt-2 text-sm text-bone-300">
-                          Joueur : {playerName(character.player_id)}
-                        </p>
+                      {isExpanded && (
+                        <div className="space-y-3 border-t border-white/10 p-4">
+                          {playerCharacters.map((character) => (
+                            <article
+                              key={character.id}
+                              className="rounded-lg border border-white/10 bg-ink-950/60 p-4"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                  <p className="font-semibold text-bone-100">
+                                    {character.first_name} {character.name}
+                                  </p>
 
-                        <p className="mt-1 text-xs text-bone-400">
-                          {character.age
-                            ? `${character.age} ans`
-                            : 'Âge non renseigné'}
-                        </p>
+                                  <p className="mt-1 text-xs text-gold-300">
+                                    {character.character_type || 'Statut non renseigné'}
+                                  </p>
 
-                        {character.extracurricular_activity && (
-                          <p className="mt-1 text-xs text-bone-400">
-                            Activité : {character.extracurricular_activity}
-                          </p>
-                        )}
+                                  <p className="mt-2 text-xs text-bone-400">
+                                    {character.age ? `${character.age} ans` : 'Âge non renseigné'}
+                                  </p>
 
-                        {character.study_program && (
-                          <p className="mt-1 text-xs text-bone-400">
-                            Filière : {character.study_program}
-                          </p>
-                        )}
+                                  {character.extracurricular_activity && (
+                                    <p className="mt-1 text-xs text-bone-400">
+                                      Activité : {character.extracurricular_activity}
+                                    </p>
+                                  )}
 
-                        {character.university_responsibility && (
-                          <p className="mt-1 text-xs text-gold-300">
-                            Responsabilité :{' '}
-                            {character.university_responsibility}
-                          </p>
-                        )}
+                                  {character.study_program && (
+                                    <p className="mt-1 text-xs text-bone-400">
+                                      Filière : {character.study_program}
+                                    </p>
+                                  )}
 
-                        {character.staff_job && (
-                          <p className="mt-1 text-xs text-bone-400">
-                            Fonction : {character.staff_job}
-                          </p>
-                        )}
+                                  {character.university_responsibility && (
+                                    <p className="mt-1 text-xs text-gold-300">
+                                      Responsabilité : {character.university_responsibility}
+                                    </p>
+                                  )}
 
-                        {character.housing && (
-                          <p className="mt-1 text-xs text-bone-400">
-                            Logement : {character.housing}
-                          </p>
-                        )}
-                      </div>
+                                  {character.staff_job && (
+                                    <p className="mt-1 text-xs text-bone-400">
+                                      Fonction : {character.staff_job}
+                                    </p>
+                                  )}
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditCharacter(character)}
-                          className="rounded-lg border border-gold-500/40 px-3 py-2 text-xs text-gold-300"
-                        >
-                          Modifier
-                        </button>
+                                  {character.housing && (
+                                    <p className="mt-1 text-xs text-bone-400">
+                                      Logement : {character.housing}
+                                    </p>
+                                  )}
+                                </div>
 
-                        <button
-                          onClick={() => handleDeleteCharacter(character.id)}
-                          className="rounded-lg border border-red-500/40 px-3 py-2 text-xs text-red-300"
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleEditCharacter(character)}
+                                    className="rounded-lg border border-gold-500/40 px-3 py-2 text-xs text-gold-300"
+                                  >
+                                    Modifier
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteCharacter(character.id)}
+                                    className="rounded-lg border border-red-500/40 px-3 py-2 text-xs text-red-300"
+                                  >
+                                    Supprimer
+                                  </button>
+                                </div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
-
-            <button
-              onClick={() => setMode('choice')}
-              className="mt-10 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
-            >
-              Retour au choix des espaces
-            </button>
           </div>
         </section>
       ) : mode === 'player' ? (
