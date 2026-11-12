@@ -102,7 +102,7 @@ export default function MessagesApp({
 
       const { error: activeError } = await supabase.rpc(
         'set_active_character',
-        { character_id: characterId }
+        { p_character_id: characterId }
       );
 
       if (activeError) {
@@ -262,7 +262,7 @@ export default function MessagesApp({
     });
     if (createError) {
       console.error(createError);
-      setError("Le groupe n'a pas pu être créé.");
+      setError("Le groupe n'a pas pu être créé : " + createError.message);
       setSending(false);
       return;
     }
@@ -271,7 +271,7 @@ export default function MessagesApp({
     );
     if (membersError) {
       console.error(membersError);
-      setError("Le groupe a été créé, mais ses participants n'ont pas pu être ajoutés. Contacte l'administration.");
+      setError("Le groupe a été créé, mais ses participants n'ont pas pu être ajoutés : " + membersError.message);
       setSending(false);
       return;
     }
