@@ -20,6 +20,9 @@ type Message = {
   read_at: string | null;
 };
 
+type GroupConversation = { id: string; name: string; created_at: string };
+type GroupMessage = { id: string; group_id: string; sender_character_id: string; content: string; created_at: string };
+
 type Props = {
   characterId: string;
   initialContactId?: string | null;
@@ -79,6 +82,13 @@ export default function MessagesApp({
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'private' | 'groups'>('private');
+  const [groupConversations, setGroupConversations] = useState<GroupConversation[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<GroupConversation | null>(null);
+  const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
+  const [choosingNewGroup, setChoosingNewGroup] = useState(false);
+  const [selectedGroupContactIds, setSelectedGroupContactIds] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState('');
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -150,6 +160,19 @@ export default function MessagesApp({
           const contact = loaded.find((item) => item.id === initialContactId);
           if (contact) setSelectedContact(contact);
         }
+
+        const { data: groupRows, error: groupsError } = await supabase
+          .from('group_conversation_members')
+          .select('group_id, group_conversations(id, name, created_at)')
+          .eq('character_id', characterId);
+        if (!mounted) return;
+        if (groupsError) {
+          console.error(groupsError);
+          setError('Impossible de charger les groupes.');
+        } else {
+          const groups = (groupRows || []).map((row: any) => row.group_conversations).filter((group: any) => group && group.id) as GroupConversation[];
+          setGroupConversations(groups);
+        }
       }
 
       setLoading(false);
@@ -201,9 +224,111 @@ export default function MessagesApp({
     }
   }
 
+
+  async function loadGroupMessages(group: GroupConversation) {
+    setSelectedGroup(group);
+    setSelectedContact(null);
+    setChoosingNewGroup(false);
+    setGroupMessages([]);
+    setError('');
+    const { data, error: messagesError } = await supabase
+      .from('group_messages')
+      .select('id, group_id, sender_character_id, content, created_at')
+      .eq('group_id', group.id)
+      .order('created_at', { ascending: true });
+    if (messagesError) {
+      console.error(messagesError);
+      setError('Impossible de charger cette conversation de groupe.');
+      return;
+    }
+    setGroupMessages((data || []) as GroupMessage[]);
+  }
+
+  async function createGroup() {
+    const participantIds = Array.from(new Set([characterId, ...selectedGroupContactIds]));
+    if (participantIds.length < 3) {
+      setError('Sélectionne au moins deux autres personnages pour créer un groupe.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    const groupId = crypto.randomUUID();
+    const selectedNames = contacts.filter((contact) => selectedGroupContactIds.includes(contact.id)).map((contact) => contact.first_name || contact.name);
+    const finalName = groupName.trim() || selectedNames.join(', ');
+    const { error: createError } = await supabase.from('group_conversations').insert({
+      id: groupId,
+      name: finalName,
+      created_by_character_id: characterId,
+    });
+    if (createError) {
+      console.error(createError);
+      setError("Le groupe n'a pas pu être créé.");
+      setSending(false);
+      return;
+    }
+    const { error: membersError } = await supabase.from('group_conversation_members').insert(
+      participantIds.map((id) => ({ group_id: groupId, character_id: id }))
+    );
+    if (membersError) {
+      console.error(membersError);
+      setError("Le groupe a été créé, mais ses participants n'ont pas pu être ajoutés. Contacte l'administration.");
+      setSending(false);
+      return;
+    }
+    const newGroup: GroupConversation = { id: groupId, name: finalName, created_at: new Date().toISOString() };
+    setGroupConversations((current) => [newGroup, ...current]);
+    setSelectedGroupContactIds([]);
+    setGroupName('');
+    setChoosingNewGroup(false);
+    setSearch('');
+    setSending(false);
+    await loadGroupMessages(newGroup);
+  }
+
+  async function sendGroupMessage(messageContent: string) {
+    if (!selectedGroup || !messageContent.trim() || sending) return;
+    setSending(true);
+    setError('');
+    const { data, error: sendError } = await supabase.from('group_messages').insert({
+      group_id: selectedGroup.id,
+      sender_character_id: characterId,
+      content: messageContent,
+    }).select('id, group_id, sender_character_id, content, created_at').single();
+    if (sendError) {
+      console.error(sendError);
+      setError("Le message n'a pas pu être envoyé.");
+    } else if (data) {
+      setGroupMessages((current) => [...current, data as GroupMessage]);
+      setContent('');
+    }
+    setSending(false);
+  }
+
+  async function handleGroupPhotoSelection(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Choisis un fichier image.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('La photo ne doit pas dépasser 10 Mo.');
+      return;
+    }
+    try {
+      setError('');
+      setSending(true);
+      const imageContent = await compressImage(file);
+      await sendGroupMessage(imageContent);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Impossible d'envoyer la photo.");
+      setSending(false);
+    }
+  }
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, groupMessages]);
 
   async function sendMessage(messageContent: string) {
     if (!selectedContact || !messageContent.trim() || sending) return;
@@ -305,11 +430,19 @@ export default function MessagesApp({
           Sterling Campus
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-bone-100">
-          Messages privés
+          Messages
         </h2>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => { setActiveTab('private'); setSelectedGroup(null); setError(''); }} className={activeTab === 'private' ? 'rounded-xl bg-gold-500 px-3 py-2 text-sm font-semibold text-ink-950' : 'rounded-xl border border-gold-500/20 px-3 py-2 text-sm font-semibold text-bone-300'}>
+            Messages privés
+          </button>
+          <button type="button" onClick={() => { setActiveTab('groups'); setSelectedContact(null); setChoosingNewContact(false); setError(''); }} className={activeTab === 'groups' ? 'rounded-xl bg-gold-500 px-3 py-2 text-sm font-semibold text-ink-950' : 'rounded-xl border border-gold-500/20 px-3 py-2 text-sm font-semibold text-bone-300'}>
+            Messages de groupe
+          </button>
+        </div>
       </div>
 
-      {!selectedContact ? (
+      {activeTab === 'private' ? (!selectedContact ? (
         <div className="p-5">
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
@@ -533,6 +666,85 @@ export default function MessagesApp({
               {sending ? '...' : 'Envoyer'}
             </button>
           </div>
+        </>
+      ) : null) : (
+        <>
+          {!selectedGroup ? (
+            <div className="p-5">
+              {!choosingNewGroup ? (
+                <>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un groupe..." className="w-full flex-1 rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400" />
+                    <button type="button" onClick={() => { setChoosingNewGroup(true); setSearch(''); setError(''); }} className="shrink-0 rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950">＋ Créer un groupe</button>
+                  </div>
+                  {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
+                  <div className="mt-5 space-y-2">
+                    {groupConversations.filter((group) => group.name.toLowerCase().includes(search.toLowerCase())).map((group) => (
+                      <button key={group.id} type="button" onClick={() => loadGroupMessages(group)} className="flex w-full items-center gap-4 rounded-xl border border-white/5 bg-ink-950 p-3 text-left">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold-500/10 text-xl text-gold-300">♧</div>
+                        <div><p className="font-medium text-bone-100">{group.name}</p><p className="mt-1 text-xs text-bone-400">Conversation de groupe</p></div>
+                        <span className="ml-auto text-gold-300">›</span>
+                      </button>
+                    ))}
+                    {groupConversations.length === 0 && <p className="py-8 text-center text-sm text-bone-400">Aucun groupe pour le moment. Crée ton premier groupe !</p>}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-semibold text-bone-100">Nouveau groupe</h3>
+                    <button type="button" onClick={() => { setChoosingNewGroup(false); setSelectedGroupContactIds([]); setGroupName(''); setError(''); }} className="text-sm text-gold-300">Annuler</button>
+                  </div>
+                  <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="Nom du groupe (facultatif)" className="mt-4 w-full rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400" />
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher des personnages..." className="mt-3 w-full rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400" />
+                  <p className="mt-3 text-xs text-bone-400">Sélectionne au moins deux personnages. Ton personnage sera ajouté automatiquement.</p>
+                  {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+                  <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+                    {contacts.filter((contact) => (String(contact.first_name || '') + ' ' + contact.name).toLowerCase().includes(search.toLowerCase())).map((contact) => {
+                      const checked = selectedGroupContactIds.includes(contact.id);
+                      return <button key={contact.id} type="button" onClick={() => setSelectedGroupContactIds((current) => checked ? current.filter((id) => id !== contact.id) : [...current, contact.id])} className={checked ? 'flex w-full items-center gap-3 rounded-xl border border-gold-400 bg-gold-500/10 p-3 text-left' : 'flex w-full items-center gap-3 rounded-xl border border-white/5 bg-ink-950 p-3 text-left'}>
+                        {contact.avatar_url ? <img src={getDiscordCompatibleImageUrl(contact.avatar_url)} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold-500/10 text-gold-300">♙</div>}
+                        <span className="flex-1 text-sm text-bone-100">{contact.first_name} {contact.name}</span>
+                        <span className="text-gold-300">{checked ? '✓' : '＋'}</span>
+                      </button>;
+                    })}
+                  </div>
+                  <button type="button" disabled={sending || selectedGroupContactIds.length < 2} onClick={createGroup} className="mt-5 w-full rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40">{sending ? 'Création...' : 'Créer le groupe (' + (selectedGroupContactIds.length + 1) + ' membres)'}</button>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 border-b border-gold-500/20 p-4">
+                <button type="button" onClick={() => setSelectedGroup(null)} className="text-xl text-gold-300" aria-label="Retour aux groupes">←</button>
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gold-500/10 text-xl text-gold-300">♧</div>
+                <div><p className="font-semibold text-bone-100">{selectedGroup.name}</p><p className="text-xs text-bone-400">Conversation de groupe</p></div>
+              </div>
+              <div className="flex min-h-[350px] max-h-[550px] flex-col gap-3 overflow-y-auto p-4">
+                {groupMessages.length === 0 && <p className="m-auto text-center text-sm text-bone-400">Aucun message. Lance la conversation !</p>}
+                {groupMessages.map((message) => {
+                  const ownMessage = message.sender_character_id === characterId;
+                  const sender = contacts.find((contact) => contact.id === message.sender_character_id);
+                  const image = getMessageImage(message.content);
+                  return <div key={message.id} className={ownMessage ? 'flex justify-end' : 'flex justify-start'}>
+                    <div className={ownMessage ? 'max-w-[80%] rounded-2xl rounded-br-sm bg-gold-500/20 px-4 py-3 text-bone-100' : 'max-w-[80%] rounded-2xl rounded-bl-sm border border-white/10 bg-ink-950 px-4 py-3 text-bone-100'}>
+                      {!ownMessage && <p className="mb-1 text-xs font-semibold text-gold-300">{sender ? (sender.first_name || '') + ' ' + sender.name : 'Participant'}</p>}
+                      {image ? <button type="button" onClick={() => setPreviewImage(image)} className="block"><img src={image} alt="Photo envoyée" className="max-h-64 max-w-full rounded-lg object-contain" /></button> : <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>}
+                      <div className="mt-2 flex items-center justify-end"><span className="text-[10px] text-bone-400">{formatDate(message.created_at)}</span></div>
+                    </div>
+                  </div>;
+                })}
+                <div ref={bottomRef} />
+              </div>
+              {error && <p className="px-4 pb-2 text-sm text-red-300">{error}</p>}
+              <div className="flex items-end gap-2 border-t border-gold-500/20 p-3">
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} aria-label="Envoyer une photo" title="Envoyer une photo" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-500/30 text-xl text-gold-300 disabled:opacity-40">📷</button>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleGroupPhotoSelection(file); event.target.value = ''; }} />
+                <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendGroupMessage(content); } }} placeholder="Écrire un message..." rows={1} className="max-h-28 min-h-11 flex-1 resize-y rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400" />
+                <button type="button" onClick={() => sendGroupMessage(content)} disabled={sending || !content.trim()} className="h-11 rounded-xl bg-gold-500 px-4 text-sm font-semibold text-ink-950 disabled:opacity-40">{sending ? '...' : 'Envoyer'}</button>
+              </div>
+            </>
+          )}
         </>
       )}
 
