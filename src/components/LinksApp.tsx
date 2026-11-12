@@ -1076,65 +1076,63 @@ export default function LinksApp({ characterId }: Props) {
                     </Button>
                   </div>
                 )}
+
+                {requestTarget?.id === announcement.id && (
+                  <div style={{ ...panelStyle, marginTop: 14, marginBottom: 0 }}>
+                    <h3 style={{ color: GOLD, marginTop: 0 }}>
+                      Proposer un lien à {characterName(character)}
+                    </h3>
+
+                    <div
+                      style={{
+                        color: "#aaa18f",
+                        fontSize: 13,
+                        marginBottom: 12,
+                      }}
+                    >
+                      Sélectionne un ou plusieurs liens parmi ceux proposés dans son
+                      annonce.
+                    </div>
+
+                    <ChoiceSelector
+                      selected={requestLinks}
+                      onChange={setRequestLinks}
+                    />
+
+                    <div
+                      style={{
+                        color: GOLD,
+                        fontWeight: 700,
+                        margin: "16px 0 7px",
+                      }}
+                    >
+                      Ajouter une proposition (facultatif)
+                    </div>
+
+                    <TextArea
+                      value={requestProposal}
+                      onChange={setRequestProposal}
+                      placeholder="Présente ton idée de lien..."
+                    />
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 13, flexWrap: "wrap" }}>
+                      <Button onClick={sendRequest}>
+                        Envoyer la demande
+                      </Button>
+
+                      <Button
+                        secondary
+                        onClick={() => setRequestTarget(null)}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {requestTarget && (
-            <div style={panelStyle}>
-              <h3 style={{ color: GOLD, marginTop: 0 }}>
-                Proposer un lien à{" "}
-                {characterName(
-                  characterMap.get(requestTarget.character_id),
-                )}
-              </h3>
-
-              <div
-                style={{
-                  color: "#aaa18f",
-                  fontSize: 13,
-                  marginBottom: 12,
-                }}
-              >
-                Sélectionne un ou plusieurs liens parmi ceux proposés dans son
-                annonce.
-              </div>
-
-              <ChoiceSelector
-                selected={requestLinks}
-                onChange={setRequestLinks}
-              />
-
-              <div
-                style={{
-                  color: GOLD,
-                  fontWeight: 700,
-                  margin: "16px 0 7px",
-                }}
-              >
-                Ajouter une proposition (facultatif)
-              </div>
-
-              <TextArea
-                value={requestProposal}
-                onChange={setRequestProposal}
-                placeholder="Présente ton idée de lien..."
-              />
-
-              <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
-                <Button onClick={sendRequest}>
-                  Envoyer la demande
-                </Button>
-
-                <Button
-                  secondary
-                  onClick={() => setRequestTarget(null)}
-                >
-                  Annuler
-                </Button>
-              </div>
-            </div>
-          )}
         </>
       )}
 
