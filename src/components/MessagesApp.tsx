@@ -316,7 +316,6 @@ export default function MessagesApp({
     }
     try {
       setError('');
-      setSending(true);
       const imageContent = await compressImage(file);
       await sendGroupMessage(imageContent);
     } catch (err) {
@@ -667,7 +666,7 @@ export default function MessagesApp({
             </button>
           </div>
         </>
-      ) : null) : (
+      )) : (
         <>
           {!selectedGroup ? (
             <div className="p-5">
