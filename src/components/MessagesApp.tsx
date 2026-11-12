@@ -69,6 +69,8 @@ export default function MessagesApp({
   initialContactId,
 }: Props) {
   const [contacts, setContacts] = useState<Character[]>([]);
+  const [conversations, setConversations] = useState<Character[]>([]);
+  const [choosingNewContact, setChoosingNewContact] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Character | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [content, setContent] = useState('');
@@ -111,6 +113,38 @@ export default function MessagesApp({
       } else {
         const loaded = (data || []) as Character[];
         setContacts(loaded);
+
+        const { data: messageRows, error: conversationError } = await supabase
+          .from('messages')
+          .select('sender_character_id, recipient_character_id')
+          .or(
+            `sender_character_id.eq.${characterId},recipient_character_id.eq.${characterId}`
+          );
+
+        if (!mounted) return;
+
+        if (conversationError) {
+          console.error(conversationError);
+          setError('Impossible de charger les conversations.');
+        } else {
+          const conversationIds = new Set<string>();
+
+          (messageRows || []).forEach((message: {
+            sender_character_id: string;
+            recipient_character_id: string;
+          }) => {
+            const otherId =
+              message.sender_character_id === characterId
+                ? message.recipient_character_id
+                : message.sender_character_id;
+
+            if (otherId) conversationIds.add(otherId);
+          });
+
+          setConversations(
+            loaded.filter((contact) => conversationIds.has(contact.id))
+          );
+        }
 
         if (initialContactId) {
           const contact = loaded.find((item) => item.id === initialContactId);
@@ -193,6 +227,11 @@ export default function MessagesApp({
       setError("Le message n'a pas pu être envoyé.");
     } else if (data) {
       setMessages((current) => [...current, data as Message]);
+      setConversations((current) =>
+        current.some((contact) => contact.id === selectedContact.id)
+          ? current
+          : [...current, selectedContact]
+      );
       setContent('');
     }
 
@@ -243,7 +282,8 @@ export default function MessagesApp({
     });
   }
 
-  const filteredContacts = contacts.filter((contact) =>
+  const visibleContacts = choosingNewContact ? contacts : conversations;
+  const filteredContacts = visibleContacts.filter((contact) =>
     `${contact.first_name || ''} ${contact.name}`
       .toLowerCase()
       .includes(search.toLowerCase())
@@ -270,15 +310,38 @@ export default function MessagesApp({
 
       {!selectedContact ? (
         <div className="p-5">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Rechercher un contact..."
-            className="w-full rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400"
-          />
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={
+                choosingNewContact
+                  ? 'Rechercher un personnage...'
+                  : 'Rechercher une conversation...'
+              }
+              className="w-full flex-1 rounded-xl border border-gold-500/20 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400"
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                setChoosingNewContact((current) => !current);
+                setSearch('');
+              }}
+              className="shrink-0 rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400"
+            >
+              {choosingNewContact ? 'Annuler' : '＋ Nouveau message'}
+            </button>
+          </div>
 
           {error && (
             <p className="mt-4 text-sm text-red-300">{error}</p>
+          )}
+
+          {choosingNewContact && (
+            <p className="mt-4 text-xs text-bone-400">
+              Choisis un personnage pour commencer une nouvelle conversation.
+            </p>
           )}
 
           <div className="mt-5 space-y-2">
@@ -316,7 +379,11 @@ export default function MessagesApp({
 
             {filteredContacts.length === 0 && (
               <p className="py-8 text-center text-sm text-bone-400">
-                Aucun contact trouvé.
+                {choosingNewContact
+                  ? 'Aucun personnage trouvé.'
+                  : search
+                    ? 'Aucune conversation trouvée.'
+                    : 'Aucune conversation pour le moment. Utilise « Nouveau message » pour commencer à écrire.'}
               </p>
             )}
           </div>
