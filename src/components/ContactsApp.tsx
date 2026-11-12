@@ -10,9 +10,18 @@ type Character = {
   age: number | null;
   character_type: string | null;
   course_position: string | null;
+  study_program: string | null;
+  staff_job: string | null;
   housing: string | null;
   avatar_url: string | null;
   created_at: string;
+};
+
+type ConfirmedLink = {
+  id: string;
+  character_one_id: string;
+  character_two_id: string;
+  link_details: { type: string; category?: string }[] | null;
 };
 
 type Props = {
@@ -31,6 +40,8 @@ export default function ContactsApp({
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
     useState<Character | null>(null);
+  const [confirmedLinks, setConfirmedLinks] = useState<ConfirmedLink[]>([]);
+  const [linksLoading, setLinksLoading] = useState(false);
   const [category, setCategory] = useState<Category>('Nouveaux');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -46,7 +57,7 @@ export default function ContactsApp({
       const { data, error } = await supabase
         .from('characters')
         .select(
-          'id, name, first_name, age, character_type, course_position, housing, avatar_url, created_at'
+          'id, name, first_name, age, character_type, course_position, study_program, staff_job, housing, avatar_url, created_at'
         )
         .neq('id', characterId)
         .order('created_at', { ascending: false });
@@ -69,6 +80,55 @@ export default function ContactsApp({
       mounted = false;
     };
   }, [characterId]);
+
+  useEffect(() => {
+    if (!selectedCharacter) {
+      setConfirmedLinks([]);
+      return;
+    }
+
+    let mounted = true;
+
+    async function loadConfirmedLinks() {
+      setLinksLoading(true);
+
+      const { data, error } = await supabase
+        .from('character_links')
+        .select('id, character_one_id, character_two_id, link_details')
+        .or(
+          `character_one_id.eq.${selectedCharacter!.id},character_two_id.eq.${selectedCharacter!.id}`
+        )
+        .order('created_at', { ascending: false });
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error('Erreur de chargement des liens confirmés :', error);
+        setConfirmedLinks([]);
+      } else {
+        setConfirmedLinks((data || []) as ConfirmedLink[]);
+      }
+
+      setLinksLoading(false);
+    }
+
+    loadConfirmedLinks();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedCharacter]);
+
+  function getCourseOrJob(character: Character) {
+    const isStudent =
+      character.character_type?.toLowerCase().includes('étudiant') ||
+      character.character_type?.toLowerCase().includes('eleve') ||
+      character.character_type?.toLowerCase().includes('élève');
+
+    return isStudent
+      ? character.study_program || character.course_position
+      : character.staff_job || character.course_position;
+  }
 
   const categorizedCharacters = useMemo(() => {
     const now = Date.now();
@@ -192,7 +252,7 @@ export default function ContactsApp({
                       Poste ou cursus
                     </p>
                     <p className="mt-2 text-sm">
-                      {selectedCharacter.course_position || 'Non renseigné'}
+                      {getCourseOrJob(selectedCharacter) || 'Non renseigné'}
                     </p>
                   </div>
 
@@ -204,6 +264,60 @@ export default function ContactsApp({
                       {selectedCharacter.housing || 'Non renseigné'}
                     </p>
                   </div>
+                </div>
+
+                <div className="mt-8">
+                  <h3 className="text-lg font-semibold text-gold-300">
+                    Liens confirmés
+                  </h3>
+
+                  {linksLoading ? (
+                    <p className="mt-3 text-sm text-bone-400">
+                      Chargement des liens...
+                    </p>
+                  ) : confirmedLinks.length === 0 ? (
+                    <p className="mt-3 rounded-xl border border-white/10 bg-ink-950/70 p-4 text-sm text-bone-400">
+                      Aucun lien confirmé pour le moment.
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid gap-3">
+                      {confirmedLinks.map((link) => {
+                        const otherId =
+                          link.character_one_id === selectedCharacter.id
+                            ? link.character_two_id
+                            : link.character_one_id;
+                        const otherCharacter = characters.find(
+                          (character) => character.id === otherId
+                        );
+                        const details = (link.link_details || [])
+                          .map((detail) => detail.type)
+                          .filter(Boolean);
+
+                        return (
+                          <div
+                            key={link.id}
+                            className="rounded-xl border border-gold-500/20 bg-ink-950/70 p-4"
+                          >
+                            <p className="text-sm font-semibold text-bone-100">
+                              {otherCharacter
+                                ? `${otherCharacter.first_name || ''} ${otherCharacter.name}`.trim()
+                                : 'Personnage'}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {details.map((detail, index) => (
+                                <span
+                                  key={`${link.id}-${index}`}
+                                  className="rounded-full border border-gold-500/30 px-3 py-1 text-xs text-gold-300"
+                                >
+                                  {detail}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-8 grid gap-3 sm:grid-cols-2">
