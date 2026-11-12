@@ -300,6 +300,38 @@ export default function MessagesApp({
     } else if (data) {
       setGroupMessages((current) => [...current, data as GroupMessage]);
       setContent('');
+
+      // Utilise le système de notifications déjà présent sur l'icône Messages.
+      // Chaque autre membre du groupe reçoit une notification non lue.
+      const { data: members, error: membersError } = await supabase
+        .from('group_conversation_members')
+        .select('character_id')
+        .eq('group_id', selectedGroup.id)
+        .neq('character_id', characterId);
+
+      if (membersError) {
+        console.error(
+          "Impossible de récupérer les membres à notifier :",
+          membersError
+        );
+      } else if (members?.length) {
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert(
+            members.map((member) => ({
+              recipient_character_id: member.character_id,
+              source_app: 'messages',
+              is_read: false,
+            }))
+          );
+
+        if (notificationError) {
+          console.error(
+            "Impossible de créer les notifications du groupe :",
+            notificationError
+          );
+        }
+      }
     }
     setSending(false);
   }
