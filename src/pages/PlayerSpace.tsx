@@ -229,8 +229,6 @@ export default function PlayerSpace({ playerId }: Props) {
   }
 
   function closeCrop() {
-    if (cropUrl) URL.revokeObjectURL(cropUrl);
-
     setCropFile(null);
     setCropUrl('');
     setCropZoom(1);
@@ -709,13 +707,29 @@ export default function PlayerSpace({ playerId }: Props) {
       return;
     }
 
-    const url = URL.createObjectURL(file);
+    // Une URL de fichier local peut ne pas être correctement affichée
+    // dans certains WebView mobiles (notamment l'activité Discord Android).
+    // Le Data URL est plus compatible pour l'aperçu du recadrage.
+    const reader = new FileReader();
 
-    setCropFile(file);
-    setCropUrl(url);
-    setCropZoom(1);
-    setCropImageSize({ width: 0, height: 0 });
-    setCropPosition({ x: 0, y: 0 });
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        setAvatarError("Impossible de lire cette photo sur ton appareil.");
+        return;
+      }
+
+      setCropFile(file);
+      setCropUrl(reader.result);
+      setCropZoom(1);
+      setCropImageSize({ width: 0, height: 0 });
+      setCropPosition({ x: 0, y: 0 });
+    };
+
+    reader.onerror = () => {
+      setAvatarError("Impossible de lire cette photo sur ton appareil.");
+    };
+
+    reader.readAsDataURL(file);
   }
 
   async function handleAvatarDelete() {
@@ -1240,6 +1254,9 @@ export default function PlayerSpace({ playerId }: Props) {
                   src={cropUrl}
                   alt="Aperçu du recadrage"
                   onLoad={handleCropImageLoad}
+                  onError={() =>
+                    setAvatarError("L'aperçu de cette photo n'a pas pu être chargé. Essaie une autre image.")
+                  }
                   draggable={false}
                   style={{
                     position: 'absolute',
