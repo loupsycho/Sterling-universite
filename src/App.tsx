@@ -90,6 +90,7 @@ const studyPrograms = [
   'LANGUES ÉTRANGÈRES',
   'SPORT & ACTIVITÉS PHYSIQUES',
   'ASTROPHYSIQUE',
+  'HISTOIRE, LINGUISTE & ARCHÉOLOGIE',
 ];
 
 const houseResponsibilities = [
@@ -123,6 +124,7 @@ const staffJobs = [
       'Professeur — Langues étrangères',
       'Professeur — Sport & activités physiques',
       'Professeur — Astrophysique',
+      'Professeur — Histoire, Linguiste & Archéologie',
     ],
   },
   {
