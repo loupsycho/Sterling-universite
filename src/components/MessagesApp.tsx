@@ -164,6 +164,7 @@ export default function MessagesApp({
 
   async function loadMessages(contact: Character) {
     setSelectedContact(contact);
+    setChoosingNewContact(false);
     setMessages([]);
     setError('');
 
