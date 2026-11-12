@@ -14,6 +14,7 @@ type Character = {
   first_name: string;
   name: string;
   avatar_url?: string | null;
+  character_type?: string | null;
 };
 
 type Props = {
@@ -58,6 +59,12 @@ function toCategory(label: string) {
 function characterName(character?: Character | null) {
   if (!character) return "Personnage";
   return `${character.first_name ?? ""} ${character.name ?? ""}`.trim();
+}
+
+function characterStatus(character?: Character | null) {
+  if (character?.character_type === "Étudiant(e)") return "Étudiant";
+  if (character?.character_type === "Membre du personnel") return "Membre du personnel";
+  return "";
 }
 
 function Avatar({
@@ -114,6 +121,7 @@ function Button({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       style={{
@@ -376,7 +384,7 @@ export default function LinksApp({ characterId }: Props) {
       ] = await Promise.all([
         supabase
           .from("characters")
-          .select("id, first_name, name, avatar_url"),
+          .select("id, first_name, name, avatar_url, character_type"),
 
         supabase
           .from("link_announcements")
@@ -985,6 +993,11 @@ export default function LinksApp({ characterId }: Props) {
                     <div style={{ color: GOLD, fontWeight: 700 }}>
                       {characterName(character)}
                     </div>
+                    {characterStatus(character) && (
+                      <div style={{ color: "#aaa18f", fontSize: 11, marginTop: 3 }}>
+                        {characterStatus(character)}
+                      </div>
+                    )}
 
                     <div style={{ color: "#8f887b", fontSize: 11 }}>
                       {new Date(
