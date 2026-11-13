@@ -5,6 +5,7 @@ import type { Session } from '@supabase/supabase-js';
 import AppShell from '@/components/layout/AppShell';
 import HomePage from '@/pages/HomePage';
 import PlayerSpace from '@/pages/PlayerSpace';
+import SecretScoop from '@/components/SecretScoop';
 import { supabase } from '@/lib/supabase';
 
 type AppMode = 'choice' | 'admin' | 'player';
@@ -191,6 +192,7 @@ export default function App() {
 
   const [mode, setMode] = useState<AppMode>('choice');
   const [modeReady, setModeReady] = useState(false);
+  const [adminScoopOpen, setAdminScoopOpen] = useState(false);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -786,6 +788,18 @@ export default function App() {
             Se déconnecter
           </button>
         </section>
+      ) : mode === 'admin' && isAdmin && adminScoopOpen ? (
+        <section className="flex flex-1 flex-col px-6 py-10">
+          <div className="mx-auto w-full max-w-4xl">
+            <button
+              onClick={() => setAdminScoopOpen(false)}
+              className="mb-6 rounded-xl border border-gold-500/30 px-6 py-3 text-sm text-gold-300 transition hover:bg-gold-500/10"
+            >
+              ← Retour à l'administration
+            </button>
+            <SecretScoop characterId="" adminOnly />
+          </div>
+        </section>
       ) : mode === 'admin' && isAdmin ? (
         <section className="flex flex-1 flex-col px-6 py-10">
           <div className="mx-auto w-full max-w-4xl">
@@ -803,6 +817,16 @@ export default function App() {
             <h1 className="mt-4 text-3xl font-semibold text-bone-100">
               Administration
             </h1>
+
+            <button
+              onClick={() => setAdminScoopOpen(true)}
+              className="mt-6 w-full rounded-xl border border-gold-500/40 bg-ink-900/70 px-5 py-4 text-left text-sm font-semibold text-gold-300 transition hover:border-gold-400 hover:bg-ink-800"
+            >
+              ✦ The Secret Scoop
+              <span className="mt-1 block text-xs font-normal text-bone-400">
+                Messages privés, propositions de secrets et publications.
+              </span>
+            </button>
 
             <h2 className="mt-8 text-xl font-semibold text-gold-300">
               Demandes en attente ({pendingPlayers.length})
