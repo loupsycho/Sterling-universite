@@ -337,6 +337,7 @@ export default function LinksApp({ characterId }: Props) {
   const [presentation, setPresentation] = useState("");
   const [wantedLinks, setWantedLinks] = useState<LinkChoice[]>([]);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
 
   const [requestTarget, setRequestTarget] = useState<any | null>(null);
   const [requestLinks, setRequestLinks] = useState<LinkChoice[]>([]);
@@ -477,6 +478,20 @@ export default function LinksApp({ characterId }: Props) {
     setMessages(data ?? []);
   };
 
+  const startEditingAnnouncement = (announcement: any) => {
+    setEditingAnnouncementId(announcement.id);
+    setPresentation(announcement.presentation ?? "");
+    setWantedLinks((announcement.wanted_links ?? []) as LinkChoice[]);
+    setShowAnnouncementForm(true);
+  };
+
+  const cancelAnnouncementEdit = () => {
+    setEditingAnnouncementId(null);
+    setPresentation("");
+    setWantedLinks([]);
+    setShowAnnouncementForm(false);
+  };
+
   const publishAnnouncement = async () => {
     if (!wantedLinks.length) {
       notify("Choisis au moins un type de lien.", true);
@@ -494,11 +509,21 @@ export default function LinksApp({ characterId }: Props) {
       return;
     }
 
-    const { error } = await supabase.from("link_announcements").insert({
-      character_id: characterId,
+    const announcementPayload = {
       presentation: presentation.trim() || null,
       wanted_links: wantedLinks,
-    });
+    };
+
+    const { error } = editingAnnouncementId
+      ? await supabase
+          .from("link_announcements")
+          .update(announcementPayload)
+          .eq("id", editingAnnouncementId)
+          .eq("character_id", characterId)
+      : await supabase.from("link_announcements").insert({
+          character_id: characterId,
+          ...announcementPayload,
+        });
 
     if (error) {
       notify(error.message, true);
@@ -508,8 +533,9 @@ export default function LinksApp({ characterId }: Props) {
     setPresentation("");
     setWantedLinks([]);
     setShowAnnouncementForm(false);
+    setEditingAnnouncementId(null);
 
-    notify("Ton annonce a été publiée !");
+    notify(editingAnnouncementId ? "Ton annonce a été modifiée !" : "Ton annonce a été publiée !");
     await loadData();
   };
 
@@ -895,19 +921,25 @@ export default function LinksApp({ characterId }: Props) {
               Fil des annonces
             </div>
 
-            <Button
-              onClick={() =>
-                setShowAnnouncementForm(!showAnnouncementForm)
-              }
-            >
-              {showAnnouncementForm ? "Fermer" : "+ Créer une annonce"}
-            </Button>
+            {!editingAnnouncementId && (
+              <Button
+                onClick={() => {
+                  if (showAnnouncementForm) {
+                    cancelAnnouncementEdit();
+                  } else {
+                    setShowAnnouncementForm(true);
+                  }
+                }}
+              >
+                {showAnnouncementForm ? "Fermer" : "+ Créer une annonce"}
+              </Button>
+            )}
           </div>
 
           {showAnnouncementForm && (
             <div style={panelStyle}>
               <h3 style={{ color: GOLD, marginTop: 0 }}>
-                Créer mon annonce
+                {editingAnnouncementId ? "Modifier mon annonce" : "Créer mon annonce"}
               </h3>
 
               <p style={{ color: "#aaa18f", fontSize: 13 }}>
@@ -946,9 +978,16 @@ export default function LinksApp({ characterId }: Props) {
               />
 
               <div style={{ marginTop: 17 }}>
-                <Button onClick={publishAnnouncement}>
-                  Publier l'annonce
-                </Button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Button onClick={publishAnnouncement}>
+                    {editingAnnouncementId ? "Enregistrer les modifications" : "Publier l'annonce"}
+                  </Button>
+                  {editingAnnouncementId && (
+                    <Button secondary onClick={cancelAnnouncementEdit}>
+                      Annuler
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1007,12 +1046,20 @@ export default function LinksApp({ characterId }: Props) {
                   </div>
 
                   {isMine && (
-                    <Button
-                      secondary
-                      onClick={() => deleteAnnouncement(announcement.id)}
-                    >
-                      Supprimer
-                    </Button>
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                      <Button
+                        secondary
+                        onClick={() => startEditingAnnouncement(announcement)}
+                      >
+                        Modifier
+                      </Button>
+                      <Button
+                        secondary
+                        onClick={() => deleteAnnouncement(announcement.id)}
+                      >
+                        Supprimer
+                      </Button>
+                    </div>
                   )}
                 </div>
 
