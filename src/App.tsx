@@ -904,6 +904,7 @@ export default function App() {
             )}
 
             {activeAdminCategory === 'players' && activePlayerSection === 'pending' && (
+              <>
             <h2 className="mt-8 text-xl font-semibold text-gold-300">
               Demandes en attente ({pendingPlayers.length})
             </h2>
@@ -962,10 +963,11 @@ export default function App() {
             {playersError && (
               <p className="mt-4 text-sm text-red-300">{playersError}</p>
             )}
-
+              </>
             )}
 
             {activeAdminCategory === 'players' && activePlayerSection === 'approved' && (
+              <>
             <h2 className="mt-12 text-xl font-semibold text-bone-100">
               Autres comptes ({otherPlayers.length})
             </h2>
@@ -1284,6 +1286,7 @@ export default function App() {
             )}
 
             {activeAdminCategory === 'registered' && (
+              <>
             <h3 className="mt-10 text-xl font-semibold text-bone-100">
               Personnages enregistrés ({characters.length})
             </h3>
@@ -1404,6 +1407,7 @@ export default function App() {
                   );
                 })}
               </div>
+              </>
             )}
           </div>
         </section>
