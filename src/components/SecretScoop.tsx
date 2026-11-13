@@ -521,7 +521,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
             </p>
           </div>
 
-          {isAdmin && (
+          {isAdmin && adminOnly && (
             <label className="cursor-pointer text-xs text-gold-400 border border-gold-500/30 rounded-lg px-2 py-2">
               Photo
               <input
@@ -554,17 +554,6 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
           </button>
         ))}
       </nav>}
-
-      {!adminOnly && isAdmin && (
-        <button
-          onClick={() => setTab('admin')}
-          className={`text-xs uppercase tracking-widest py-3 border-b border-gold-500/20 ${
-            tab === 'admin' ? 'text-gold-400' : 'text-bone-500'
-          }`}
-        >
-          Administration · {pendingSubmissions.length} en attente
-        </button>
-      )}
 
       {error && (
         <div className="mx-4 mt-3 rounded-lg border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">
