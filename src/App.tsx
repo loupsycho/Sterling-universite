@@ -1303,10 +1303,7 @@ export default function App() {
               </p>
             ) : (
               <div className="mt-5 space-y-3">
-                {characterGroups.map(({ player, characters: playerCharacters }) => {
-                  const isExpanded = expandedCharacterPlayerId === player.id;
-
-                  return (
+                {characterGroups.map(({ player, characters: playerCharacters }) => (
                     <article
                       key={player.id}
                       className="overflow-hidden rounded-xl border border-gold-500/20 bg-ink-900/50"
@@ -1314,7 +1311,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() =>
-                          setExpandedCharacterPlayerId(isExpanded ? null : player.id)
+                          setExpandedCharacterPlayerId(expandedCharacterPlayerId === player.id ? null : player.id)
                         }
                         className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-ink-800/60"
                       >
@@ -1404,8 +1401,7 @@ export default function App() {
                         </div>
                       )}
                     </article>
-                  );
-                })}
+                ))}
               </div>
               </div>
             )}
