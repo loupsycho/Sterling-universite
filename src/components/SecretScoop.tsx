@@ -652,26 +652,6 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                 <span className="text-xs text-bone-400">{displayName(activeConversation)}</span>
               </div>
             )}
-            {adminOnly && isAdmin && activeConversation && false && (
-              <div>
-                <label className="block text-xs uppercase tracking-widest text-gold-400 mb-2">
-                  Conversation
-                </label>
-                <select
-                  value={activeConversation}
-                  onChange={(event) => setActiveConversation(event.target.value)}
-                  className="w-full bg-ink-900 border border-gold-500/30 rounded-lg p-3 text-sm text-bone-100"
-                >
-                  <option value="">Choisir un personnage</option>
-                  {characters.map((character) => (
-                    <option key={character.id} value={character.id}>
-                      {character.first_name} {character.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
             <div className="space-y-3 min-h-48">
               {conversationMessages.length === 0 && (
                 <p className="text-center text-sm text-bone-500 py-10">
