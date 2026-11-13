@@ -1012,7 +1012,7 @@ export default function App() {
                 </article>
               ))}
             </div>
-
+              </>
             )}
 
             {activeAdminCategory === 'management' && (
