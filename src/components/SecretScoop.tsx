@@ -44,12 +44,13 @@ type Tab = 'feed' | 'messages' | 'submit' | 'admin';
 
 interface SecretScoopProps {
   characterId: string;
+  adminOnly?: boolean;
 }
 
 const SIGNATURE = "Don't hide. I see you.\nTHE SECRET SCOOP\nYour secrets. Our business.";
 
-export default function SecretScoop({ characterId }: SecretScoopProps) {
-  const [tab, setTab] = useState<Tab>('feed');
+export default function SecretScoop({ characterId, adminOnly = false }: SecretScoopProps) {
+  const [tab, setTab] = useState<Tab>(adminOnly ? 'admin' : 'feed');
   const [posts, setPosts] = useState<ScoopPost[]>([]);
   const [messages, setMessages] = useState<ScoopMessage[]>([]);
   const [characters, setCharacters] = useState<ScoopCharacter[]>([]);
@@ -510,6 +511,11 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
             <h1 className="text-xl font-serif tracking-wider">
               THE SECRET SCOOP
             </h1>
+            {adminOnly && (
+              <p className="text-[10px] uppercase tracking-widest text-gold-400 mt-1">
+                Administration · {pendingSubmissions.length + messages.filter((message) => message.sender_type === 'character' && !message.read_at).length} notification(s)
+              </p>
+            )}
             <p className="text-xs text-bone-500 italic">
               Don't hide. I see you.
             </p>
@@ -529,7 +535,7 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
         </div>
       </header>
 
-      <nav className="grid grid-cols-3 border-b border-gold-500/20">
+      {!adminOnly && <nav className="grid grid-cols-3 border-b border-gold-500/20">
         {[
           { id: 'feed' as Tab, label: 'Fil public' },
           { id: 'messages' as Tab, label: 'Messages' },
@@ -547,9 +553,9 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
             {item.label}
           </button>
         ))}
-      </nav>
+      </nav>}
 
-      {isAdmin && (
+      {!adminOnly && isAdmin && (
         <button
           onClick={() => setTab('admin')}
           className={`text-xs uppercase tracking-widest py-3 border-b border-gold-500/20 ${
@@ -945,15 +951,25 @@ export default function SecretScoop({ characterId }: SecretScoopProps) {
                 const count = messages.filter(
                   (message) =>
                     message.character_id === character.id &&
-                    message.sender_type === 'character'
+                    message.sender_type === 'character' &&
+                    !message.read_at
                 ).length;
 
                 return (
                   <button
                     key={character.id}
-                    onClick={() => {
+                    onClick={async () => {
                       setActiveConversation(character.id);
                       setTab('messages');
+                      if (isAdmin) {
+                        const { error: readError } = await supabase
+                          .from('scoop_messages')
+                          .update({ read_at: new Date().toISOString() })
+                          .eq('character_id', character.id)
+                          .eq('sender_type', 'character')
+                          .is('read_at', null);
+                        if (!readError) await loadData();
+                      }
                     }}
                     className="w-full text-left rounded-lg border border-gold-500/20 bg-ink-900 p-3 mb-2 flex justify-between items-center"
                   >
