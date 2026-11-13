@@ -60,7 +60,9 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   });
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeConversation, setActiveConversation] = useState(characterId);
+  const [activeConversation, setActiveConversation] = useState(adminOnly ? '' : characterId);
+  const [newMessageSearch, setNewMessageSearch] = useState('');
+  const [showNewMessage, setShowNewMessage] = useState(false);
   const [postType, setPostType] = useState<'verified' | 'rumor'>('rumor');
   const [postTarget, setPostTarget] = useState('');
   const [postContent, setPostContent] = useState('');
@@ -320,7 +322,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
     event.preventDefault();
     if (!messageContent.trim() && !messageImage) return;
 
-    const targetId = isAdmin ? activeConversation : characterId;
+    const adminMessage = adminOnly && isAdmin;
+    const targetId = adminMessage ? activeConversation : characterId;
     if (!targetId) return;
 
     setSending(true);
@@ -342,7 +345,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
         .from('scoop_messages')
         .insert({
           character_id: targetId,
-          sender_type: isAdmin ? 'admin' : 'character',
+          sender_type: adminOnly && isAdmin ? 'admin' : 'character',
           sender_user_id: user?.id,
           content: messageContent.trim() || null,
           image_url: imagePath,
@@ -352,7 +355,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
       if (insertError) throw insertError;
 
-      if (isAdmin && insertedMessage) {
+      if (adminOnly && isAdmin && insertedMessage) {
         const { error: notificationError } = await supabase
           .from('scoop_notifications')
           .insert({
@@ -469,7 +472,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
   const conversationMessages = messages.filter(
     (message) =>
-      message.character_id === (isAdmin ? activeConversation : characterId)
+      message.character_id === (adminOnly ? activeConversation : characterId)
   );
 
   const pendingSubmissions = submissions.filter(
@@ -643,7 +646,13 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
         {tab === 'messages' && (
           <section className="space-y-4">
-            {isAdmin && (
+            {adminOnly && isAdmin && (
+              <div className="flex items-center justify-between gap-3">
+                <button type="button" onClick={() => setTab('admin')} className="text-xs text-gold-400">← Retour aux conversations</button>
+                <span className="text-xs text-bone-400">{displayName(activeConversation)}</span>
+              </div>
+            )}
+            {adminOnly && isAdmin && activeConversation && false && (
               <div>
                 <label className="block text-xs uppercase tracking-widest text-gold-400 mb-2">
                   Conversation
@@ -671,7 +680,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
               )}
 
               {conversationMessages.map((message) => {
-                const ownMessage = isAdmin
+                const ownMessage = adminOnly
                   ? message.sender_type === 'admin'
                   : message.sender_type === 'character';
 
@@ -932,25 +941,84 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
             </div>
 
             <div className="border-t border-gold-500/20 pt-5">
-              <h2 className="font-serif text-lg text-gold-400 mb-3">
-                Conversations
-              </h2>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="font-serif text-lg text-gold-400">Conversations</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewMessage((value) => !value);
+                    setNewMessageSearch('');
+                  }}
+                  className="rounded-lg bg-gold-500 px-3 py-2 text-xs font-semibold text-ink-950"
+                >
+                  + Nouveau message
+                </button>
+              </div>
 
-              {characters.map((character) => {
-                const count = messages.filter(
-                  (message) =>
-                    message.character_id === character.id &&
-                    message.sender_type === 'character' &&
-                    !message.read_at
-                ).length;
+              {showNewMessage && (
+                <div className="mb-4 rounded-xl border border-gold-500/30 bg-ink-900 p-3 space-y-3">
+                  <label className="block text-xs uppercase tracking-widest text-gold-400">
+                    Rechercher un personnage
+                  </label>
+                  <input
+                    type="search"
+                    value={newMessageSearch}
+                    onChange={(event) => setNewMessageSearch(event.target.value)}
+                    placeholder="Écrire le prénom ou le nom..."
+                    className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100 placeholder:text-bone-600"
+                  />
+                  <div className="max-h-56 overflow-y-auto space-y-2">
+                    {characters
+                      .filter((character) =>
+                        `${character.first_name || ''} ${character.name}`
+                          .toLowerCase()
+                          .includes(newMessageSearch.trim().toLowerCase())
+                      )
+                      .map((character) => (
+                        <button
+                          key={character.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveConversation(character.id);
+                            setShowNewMessage(false);
+                            setTab('messages');
+                          }}
+                          className="w-full rounded-lg border border-white/10 bg-ink-950 p-3 text-left text-sm hover:border-gold-500/40"
+                        >
+                          {character.first_name} {character.name}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
 
-                return (
-                  <button
-                    key={character.id}
-                    onClick={async () => {
-                      setActiveConversation(character.id);
-                      setTab('messages');
-                      if (isAdmin) {
+              {characters
+                .filter((character) =>
+                  messages.some((message) => message.character_id === character.id)
+                )
+                .sort((a, b) => {
+                  const latest = (id: string) =>
+                    messages
+                      .filter((message) => message.character_id === id)
+                      .reduce((time, message) => Math.max(time, new Date(message.created_at).getTime()), 0);
+                  return latest(b.id) - latest(a.id);
+                })
+                .map((character) => {
+                  const characterMessages = messages.filter(
+                    (message) => message.character_id === character.id
+                  );
+                  const lastMessage = characterMessages[characterMessages.length - 1];
+                  const unreadCount = characterMessages.filter(
+                    (message) => message.sender_type === 'character' && !message.read_at
+                  ).length;
+
+                  return (
+                    <button
+                      key={character.id}
+                      type="button"
+                      onClick={async () => {
+                        setActiveConversation(character.id);
+                        setTab('messages');
                         const { error: readError } = await supabase
                           .from('scoop_messages')
                           .update({ read_at: new Date().toISOString() })
@@ -958,19 +1026,34 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                           .eq('sender_type', 'character')
                           .is('read_at', null);
                         if (!readError) await loadData();
-                      }
-                    }}
-                    className="w-full text-left rounded-lg border border-gold-500/20 bg-ink-900 p-3 mb-2 flex justify-between items-center"
-                  >
-                    <span className="text-sm">
-                      {character.first_name} {character.name}
-                    </span>
-                    <span className="text-xs text-gold-400">
-                      {count} message(s) reçu(s) →
-                    </span>
-                  </button>
-                );
-              })}
+                      }}
+                      className="mb-2 flex w-full items-center justify-between gap-3 rounded-xl border border-gold-500/20 bg-ink-900 p-3 text-left"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-bone-100">
+                          {character.first_name} {character.name}
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-bone-500">
+                          {lastMessage?.sender_type === 'admin' ? 'The Secret Scoop : ' : ''}
+                          {lastMessage?.content || (lastMessage?.image_url ? 'Photo jointe' : 'Conversation')}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {unreadCount > 0 && (
+                          <span className="rounded-full bg-gold-500 px-2 py-1 text-[10px] font-semibold text-ink-950">
+                            {unreadCount}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-bone-500">
+                          {lastMessage ? new Date(lastMessage.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              {messages.length === 0 && (
+                <p className="text-sm text-bone-500">Aucune conversation pour le moment.</p>
+              )}
             </div>
           </section>
         )}
