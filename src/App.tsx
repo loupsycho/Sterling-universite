@@ -194,6 +194,8 @@ export default function App() {
   const [modeReady, setModeReady] = useState(false);
   const [adminScoopOpen, setAdminScoopOpen] = useState(false);
   const [scoopNotificationCount, setScoopNotificationCount] = useState(0);
+  const [activeAdminCategory, setActiveAdminCategory] = useState<'home' | 'players' | 'management' | 'registered'>('home');
+  const [activePlayerSection, setActivePlayerSection] = useState<'pending' | 'approved'>('pending');
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -873,6 +875,35 @@ export default function App() {
               </span>
             </button>
 
+            {activeAdminCategory === 'home' && (
+              <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                <button onClick={() => { setActiveAdminCategory('players'); setActivePlayerSection('pending'); }} className="rounded-xl border border-gold-500/30 bg-ink-900/70 p-5 text-left hover:border-gold-400">
+                  <span className="flex items-center justify-between gap-2"><strong className="text-gold-300">Demandes et comptes joueurs</strong>{pendingPlayers.length > 0 && <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">{pendingPlayers.length}</span>}</span>
+                  <span className="mt-2 block text-xs text-bone-400">Demandes en attente et comptes validés.</span>
+                </button>
+                <button onClick={() => setActiveAdminCategory('management')} className="rounded-xl border border-gold-500/30 bg-ink-900/70 p-5 text-left hover:border-gold-400">
+                  <strong className="text-gold-300">Gestion des personnages</strong><span className="mt-2 block text-xs text-bone-400">Créer, modifier et attribuer les personnages.</span>
+                </button>
+                <button onClick={() => setActiveAdminCategory('registered')} className="rounded-xl border border-gold-500/30 bg-ink-900/70 p-5 text-left hover:border-gold-400">
+                  <strong className="text-gold-300">Personnages enregistrés</strong><span className="mt-2 block text-xs text-bone-400">Dossiers des joueurs et leurs personnages.</span>
+                </button>
+              </div>
+            )}
+
+            {activeAdminCategory !== 'home' && (
+              <button onClick={() => setActiveAdminCategory('home')} className="mt-8 rounded-lg border border-gold-500/30 px-4 py-2 text-sm text-gold-300">← Retour aux catégories</button>
+            )}
+
+            {activeAdminCategory === 'players' && (
+              <>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button onClick={() => setActivePlayerSection('pending')} className={`rounded-lg px-4 py-3 text-sm ${activePlayerSection === 'pending' ? 'bg-gold-500 text-ink-950' : 'border border-gold-500/30 text-gold-300'}`}>Demandes en attente {pendingPlayers.length > 0 ? `(${pendingPlayers.length})` : ''}</button>
+                  <button onClick={() => setActivePlayerSection('approved')} className={`rounded-lg px-4 py-3 text-sm ${activePlayerSection === 'approved' ? 'bg-gold-500 text-ink-950' : 'border border-gold-500/30 text-gold-300'}`}>Comptes joueurs validés</button>
+                </div>
+              </>
+            )}
+
+            {activeAdminCategory === 'players' && activePlayerSection === 'pending' && (
             <h2 className="mt-8 text-xl font-semibold text-gold-300">
               Demandes en attente ({pendingPlayers.length})
             </h2>
@@ -932,6 +963,9 @@ export default function App() {
               <p className="mt-4 text-sm text-red-300">{playersError}</p>
             )}
 
+            )}
+
+            {activeAdminCategory === 'players' && activePlayerSection === 'approved' && (
             <h2 className="mt-12 text-xl font-semibold text-bone-100">
               Autres comptes ({otherPlayers.length})
             </h2>
@@ -977,8 +1011,10 @@ export default function App() {
               ))}
             </div>
 
-            <div className="my-12 border-t border-gold-500/20" />
+            )}
 
+            {activeAdminCategory === 'management' && (
+              <>
             <h2 className="text-2xl font-semibold text-gold-300">
               Gestion des personnages
             </h2>
@@ -1244,6 +1280,10 @@ export default function App() {
               </div>
             </div>
 
+              </>
+            )}
+
+            {activeAdminCategory === 'registered' && (
             <h3 className="mt-10 text-xl font-semibold text-bone-100">
               Personnages enregistrés ({characters.length})
             </h3>
