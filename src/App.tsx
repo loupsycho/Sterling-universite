@@ -1286,7 +1286,7 @@ export default function App() {
             )}
 
             {activeAdminCategory === 'registered' && (
-              <>
+              <div>
             <h3 className="mt-10 text-xl font-semibold text-bone-100">
               Personnages enregistrés ({characters.length})
             </h3>
@@ -1407,7 +1407,7 @@ export default function App() {
                   );
                 })}
               </div>
-              </>
+              </div>
             )}
           </div>
         </section>
