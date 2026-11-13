@@ -193,6 +193,7 @@ export default function App() {
   const [mode, setMode] = useState<AppMode>('choice');
   const [modeReady, setModeReady] = useState(false);
   const [adminScoopOpen, setAdminScoopOpen] = useState(false);
+  const [scoopNotificationCount, setScoopNotificationCount] = useState(0);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -309,6 +310,43 @@ export default function App() {
       mounted = false;
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!isAdmin || mode !== 'admin') {
+      setScoopNotificationCount(0);
+      return;
+    }
+
+    let mounted = true;
+
+    const loadScoopNotifications = async () => {
+      const [submissionsResult, messagesResult] = await Promise.all([
+        supabase
+          .from('scoop_submissions')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
+        supabase
+          .from('scoop_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('sender_type', 'character')
+          .is('read_at', null),
+      ]);
+
+      if (!mounted) return;
+
+      setScoopNotificationCount(
+        (submissionsResult.count || 0) + (messagesResult.count || 0)
+      );
+    };
+
+    loadScoopNotifications();
+    const interval = window.setInterval(loadScoopNotifications, 15000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, [isAdmin, mode, adminScoopOpen]);
 
   const characterSelect =
     'id, player_id, name, first_name, age, character_type, course_position, extracurricular_activity, study_program, university_responsibility, staff_job, housing, avatar_url';
@@ -822,7 +860,14 @@ export default function App() {
               onClick={() => setAdminScoopOpen(true)}
               className="mt-6 w-full rounded-xl border border-gold-500/40 bg-ink-900/70 px-5 py-4 text-left text-sm font-semibold text-gold-300 transition hover:border-gold-400 hover:bg-ink-800"
             >
-              ✦ The Secret Scoop
+              <span className="flex items-center justify-between gap-3">
+                <span>✦ The Secret Scoop</span>
+                {scoopNotificationCount > 0 && (
+                  <span className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-bold text-white">
+                    {scoopNotificationCount}
+                  </span>
+                )}
+              </span>
               <span className="mt-1 block text-xs font-normal text-bone-400">
                 Messages privés, propositions de secrets et publications.
               </span>
