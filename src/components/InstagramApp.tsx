@@ -417,15 +417,41 @@ export default function InstagramApp({ characterId }: Props) {
     }
 
     setError('');
+    setMessage('');
 
-    const { error } = await supabase
+    // Supprimer d'abord les éléments liés pour éviter qu'une contrainte
+    // de clé étrangère empêche la suppression de la publication.
+    const { error: likesError } = await supabase
+      .from('instagram_likes')
+      .delete()
+      .eq('post_id', post.id);
+
+    if (likesError) {
+      console.error('Erreur lors de la suppression des likes :', likesError);
+      setError("Impossible de supprimer les J'aime associés à cette publication.");
+      return;
+    }
+
+    const { error: commentsError } = await supabase
+      .from('instagram_comments')
+      .delete()
+      .eq('post_id', post.id);
+
+    if (commentsError) {
+      console.error('Erreur lors de la suppression des commentaires :', commentsError);
+      setError('Impossible de supprimer les commentaires associés à cette publication.');
+      return;
+    }
+
+    const { error: postError } = await supabase
       .from('instagram_posts')
       .delete()
-      .eq('id', post.id);
+      .eq('id', post.id)
+      .eq('character_id', characterId);
 
-    if (error) {
-      console.error(error);
-      setError('Impossible de supprimer cette publication.');
+    if (postError) {
+      console.error('Erreur lors de la suppression de la publication :', postError);
+      setError("La publication n'a pas pu être supprimée. Vérifie que tu es bien connecté avec le personnage qui l'a publiée.");
       return;
     }
 
@@ -436,13 +462,16 @@ export default function InstagramApp({ characterId }: Props) {
         .from('instagram-posts')
         .remove([filePath]);
 
-      if (storageError) console.error(storageError);
+      if (storageError) {
+        console.error('Erreur lors de la suppression du média Instagram :', storageError);
+      }
     }
 
     setPosts((current) => current.filter((item) => item.id !== post.id));
     setComments((current) =>
       current.filter((item) => item.post_id !== post.id)
     );
+    setLikedPostIds((current) => current.filter((id) => id !== post.id));
     setMessage('Publication supprimée.');
   }
 
