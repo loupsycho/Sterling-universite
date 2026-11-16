@@ -270,6 +270,30 @@ export default function InstagramApp({ characterId }: Props) {
         throw insertError;
       }
 
+      // Chaque autre personnage reçoit une notification pour cette nouvelle publication.
+      const otherCharacterIds = characters
+        .filter((character) => character.id !== characterId)
+        .map((character) => character.id);
+
+      if (otherCharacterIds.length > 0) {
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert(
+            otherCharacterIds.map((recipientCharacterId) => ({
+              recipient_character_id: recipientCharacterId,
+              source_app: 'instagram',
+              is_read: false,
+            }))
+          );
+
+        if (notificationError) {
+          console.error(
+            "Impossible de créer les notifications Instagram :",
+            notificationError
+          );
+        }
+      }
+
       setCaption('');
       clearSelectedFile();
       setMessage('Publication ajoutée à votre fil !');
