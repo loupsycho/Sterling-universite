@@ -105,6 +105,8 @@ export default function InstagramApp({ characterId }: Props) {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   const [caption, setCaption] = useState('');
+  const [tagCharacterId, setTagCharacterId] = useState('');
+  const [taggedCharacterIds, setTaggedCharacterIds] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState('');
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
@@ -257,12 +259,23 @@ export default function InstagramApp({ characterId }: Props) {
         .from('instagram-posts')
         .getPublicUrl(filePath);
 
+      const taggedNames = characters
+        .filter((character) => taggedCharacterIds.includes(character.id))
+        .map((character) => `@${characterName(character)}`);
+
+      const fullCaption = [
+        caption.trim(),
+        taggedNames.length > 0 ? `Identifié(e)s : ${taggedNames.join(' ')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
       const { error: insertError } = await supabase
         .from('instagram_posts')
         .insert({
           character_id: characterId,
           image_url: publicData.publicUrl,
-          caption: caption.trim() || null,
+          caption: fullCaption || null,
         });
 
       if (insertError) {
@@ -295,6 +308,8 @@ export default function InstagramApp({ characterId }: Props) {
       }
 
       setCaption('');
+      setTagCharacterId('');
+      setTaggedCharacterIds([]);
       clearSelectedFile();
       setMessage('Publication ajoutée à votre fil !');
       await loadInstagram();
@@ -704,6 +719,84 @@ export default function InstagramApp({ characterId }: Props) {
                     placeholder="Exprime-toi..."
                     className="mt-4 w-full resize-y rounded-xl border border-gold-500/20 bg-ink-950 p-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400/50"
                   />
+
+                  <div className="mt-4 rounded-xl border border-gold-500/20 bg-ink-950 p-3">
+                    <p className="text-sm font-semibold text-bone-100">
+                      Identifier des personnages
+                    </p>
+                    <p className="mt-1 text-xs text-bone-400">
+                      Sélectionne les personnages validés que tu souhaites taguer dans ta publication.
+                    </p>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={tagCharacterId}
+                        onChange={(event) => setTagCharacterId(event.target.value)}
+                        disabled={publishing}
+                        className="min-w-0 flex-1 rounded-xl border border-gold-500/20 bg-ink-900 px-3 py-2 text-sm text-bone-100 outline-none focus:border-gold-400/50"
+                      >
+                        <option value="">Choisir un personnage...</option>
+                        {characters
+                          .filter(
+                            (character) =>
+                              character.id !== characterId &&
+                              !taggedCharacterIds.includes(character.id)
+                          )
+                          .map((character) => (
+                            <option key={character.id} value={character.id}>
+                              {characterName(character)}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!tagCharacterId || publishing}
+                        onClick={() => {
+                          setTaggedCharacterIds((current) =>
+                            current.includes(tagCharacterId)
+                              ? current
+                              : [...current, tagCharacterId]
+                          );
+                          setTagCharacterId('');
+                        }}
+                        className="rounded-xl border border-gold-500/40 px-4 py-2 text-sm text-gold-300 transition hover:bg-gold-500/10 disabled:opacity-40"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+
+                    {taggedCharacterIds.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {taggedCharacterIds.map((taggedId) => {
+                          const taggedCharacter = characters.find(
+                            (character) => character.id === taggedId
+                          );
+                          if (!taggedCharacter) return null;
+
+                          return (
+                            <span
+                              key={taggedId}
+                              className="inline-flex items-center gap-2 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 text-xs text-gold-200"
+                            >
+                              @{characterName(taggedCharacter)}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTaggedCharacterIds((current) =>
+                                    current.filter((id) => id !== taggedId)
+                                  )
+                                }
+                                disabled={publishing}
+                                aria-label={`Retirer ${characterName(taggedCharacter)}`}
+                                className="text-bone-300 hover:text-red-300"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   <label className="mt-3 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-gold-500/40 px-4 py-4 text-sm text-gold-300 transition hover:bg-gold-500/10">
                     <span>＋ Ajouter une photo ou une vidéo</span>
