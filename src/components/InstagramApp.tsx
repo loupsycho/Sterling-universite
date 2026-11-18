@@ -119,6 +119,37 @@ export default function InstagramApp({ characterId }: Props) {
   useEffect(() => { void loadAll(); }, [loadAll]);
 
   useEffect(() => {
+    let active = true;
+    const refreshNotifications = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('id,notification_type,title,body,related_id,actor_character_id,is_read,created_at')
+        .eq('recipient_character_id', characterId)
+        .eq('source_app', 'instagram')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (active && !error && data) setNotifications(data as Notification[]);
+    };
+    const channel = supabase
+      .channel(`instagram-notifications-${characterId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_character_id=eq.${characterId}`,
+        },
+        () => { void refreshNotifications(); }
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [characterId]);
+
+  useEffect(() => {
     if (!expandedMedia) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' || event.key === 'Backspace') {
@@ -305,7 +336,7 @@ export default function InstagramApp({ characterId }: Props) {
   return <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-950 text-bone-100 shadow-2xl">
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gold-500/20 bg-ink-900/95 px-4 py-4 backdrop-blur">
       <div className="font-serif text-2xl italic tracking-tight text-gold-300">Instagram <span className="ml-2 font-sans text-[10px] not-italic uppercase tracking-[0.3em] text-bone-500">Sterling</span></div>
-      <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label="Notifications"><Heart size={25} />{unread > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-gold-500/20 bg-red-500" />}</button></div>
+      <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label={unread > 0 ? `Notifications, ${unread} non lues` : 'Notifications'}><Heart size={25} />{unread > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full border border-ink-900 bg-red-600 px-1 text-[9px] font-bold text-white">{unread > 9 ? '9+' : unread}</span>}</button></div>
     </header>
 
     <nav className="grid shrink-0 grid-cols-4 border-t border-gold-500/20 bg-ink-900 py-3">
