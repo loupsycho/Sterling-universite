@@ -187,7 +187,7 @@ export default function InstagramApp({ characterId }: Props) {
       ? await supabase.from('instagram_follows').delete().eq('follower_character_id', characterId).eq('followed_character_id', targetId)
       : await supabase.from('instagram_follows').insert({ follower_character_id: characterId, followed_character_id: targetId });
     setBusy(false);
-    if (result.error) { notify("Impossible de modifier l'abonnement."); return; }
+    if (result.error) { console.error("Instagram follow error:", result.error); notify(`Impossible de modifier l'abonnement : ${result.error.message}`); return; }
     await loadAll();
   };
 
