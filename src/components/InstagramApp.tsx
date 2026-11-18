@@ -24,7 +24,7 @@ const BUCKET = 'instagram-posts';
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'];
 
-const fullName = (c?: Character | null) => c ? [c.first_name, c.name].filter(Boolean).join(' ') : 'Personnage';
+const fullName = (c?: Character | null) => c ? [c.first_name, c.name].filter(Boolean).join(' ') || 'Profil sans nom' : 'Profil indisponible';
 const dateLabel = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 const mediaType = (file: File): 'image' | 'video' => file.type.startsWith('video/') ? 'video' : 'image';
 
@@ -117,6 +117,18 @@ export default function InstagramApp({ characterId }: Props) {
   }, [characterId]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    if (!expandedMedia) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' || event.key === 'Backspace') {
+        event.preventDefault();
+        setExpandedMedia(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expandedMedia]);
 
   useEffect(() => {
     let alive = true;
@@ -268,16 +280,16 @@ export default function InstagramApp({ characterId }: Props) {
     const current = carousel[post.id] || 0;
     const item = post.media[current] || post.media[0];
     const mine = post.character_id === characterId;
-    return <article className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/90 shadow-lg shadow-black/20">
+    return <article className="overflow-hidden rounded-2xl border border-gold-500/25 bg-gradient-to-b from-ink-900 to-ink-950 shadow-xl shadow-black/30">
       <div className="flex items-center gap-3 px-3 py-3">
         <button onClick={() => goProfile(post.character_id)}><Avatar character={owner} /></button>
         <button onClick={() => goProfile(post.character_id)} className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-bone-100">{fullName(owner)}</span><span className="text-xs text-bone-400">{dateLabel(post.created_at)}</span></button>
-        {mine && <button onClick={() => setDeleteCandidate(post)} disabled={busy} aria-label="Options de la publication" className="rounded-full p-2 text-gold-300 hover:bg-ink-900/10"><MoreHorizontal /></button>}
+        {mine && <button onClick={() => setDeleteCandidate(post)} disabled={busy} aria-label="Supprimer cette publication" title="Supprimer la publication" className="rounded-full border border-gold-500/20 p-2 text-bone-400 transition hover:border-red-500/40 hover:bg-red-950/40 hover:text-red-300"><Trash2 size={18} /></button>}
       </div>
-      <div className="relative bg-black">
+      <div className="relative flex min-h-[220px] items-center justify-center overflow-hidden bg-black/90">
         {item?.media_type === 'video'
-          ? <video src={item.media_url} poster={item.thumbnail_url || undefined} controls playsInline preload="metadata" className="max-h-[560px] w-full object-contain" />
-          : <button type="button" onClick={() => item && setExpandedMedia(item)} className="block w-full cursor-zoom-in"><img src={item?.media_url || post.image_url} alt="Ouvrir la photo en grand" onError={e => { e.currentTarget.style.display = 'none'; }} className="mx-auto max-h-[560px] w-full object-contain" /></button>}
+          ? <video src={item.media_url} poster={item.thumbnail_url || undefined} controls playsInline preload="metadata" className="max-h-[70vh] w-full object-contain" />
+          : <button type="button" onClick={() => item && setExpandedMedia(item)} className="flex max-h-[70vh] w-full cursor-zoom-in items-center justify-center"><img src={item?.media_url || post.image_url} alt="Ouvrir la photo en grand" className="max-h-[70vh] w-full object-contain" /></button>}
         {post.media.length > 1 && <><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.max(0, current - 1) }))} disabled={current === 0} className="absolute left-2 top-1/2 rounded-full bg-ink-900/80 p-2 disabled:opacity-30"><ChevronLeft size={18} /></button><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.min(post.media.length - 1, current + 1) }))} disabled={current === post.media.length - 1} className="absolute right-2 top-1/2 rounded-full bg-ink-900/80 p-2 disabled:opacity-30"><ChevronRight size={18} /></button><span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-1 text-xs text-bone-100">{current + 1}/{post.media.length}</span></>}
       </div>
       <div className="px-3 pb-3 pt-2">
@@ -296,8 +308,19 @@ export default function InstagramApp({ characterId }: Props) {
       <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label="Notifications"><Heart size={25} />{unread > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-gold-500/20 bg-red-500" />}</button></div>
     </header>
 
-    {tab === 'home' && <main className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-ink-950 p-3">
-      {posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <div className="p-10 text-center text-sm text-bone-400">Aucune publication pour le moment.</div>}
+    {tab === 'home' && <main className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-ink-950 px-3 pb-4 pt-3">
+      <section className="rounded-2xl border border-gold-500/20 bg-gradient-to-r from-ink-900 via-ink-900 to-ink-800 px-4 py-4 shadow-lg shadow-black/20">
+        <div className="flex items-center gap-3">
+          <Avatar character={me} size="h-12 w-12" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-gold-400">Sterling Campus</p>
+            <h2 className="mt-1 text-lg font-semibold text-bone-100">Fil d’actualité</h2>
+            <p className="text-xs text-bone-400">Les dernières publications de la communauté</p>
+          </div>
+          <button onClick={() => setTab('create')} className="rounded-full border border-gold-500/30 bg-ink-950/70 p-3 text-gold-300 transition hover:bg-ink-800" aria-label="Créer une publication"><PlusSquare size={20} /></button>
+        </div>
+      </section>
+      {posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <div className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-10 text-center text-sm text-bone-400">Aucune publication pour le moment.</div>}
     </main>}
 
     {tab === 'search' && <main className="min-h-0 flex-1 overflow-y-auto bg-ink-950 p-4">
@@ -339,7 +362,7 @@ export default function InstagramApp({ characterId }: Props) {
 
     {deleteCandidate && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-5"><div className="w-full max-w-sm rounded-2xl border border-gold-500/30 bg-ink-900 p-5 shadow-2xl"><h3 className="text-lg font-semibold text-bone-100">Supprimer la publication ?</h3><p className="mt-2 text-sm text-bone-400">Cette publication et ses médias seront retirés du fil et de ton profil.</p><div className="mt-5 flex gap-3"><button onClick={() => setDeleteCandidate(null)} className="flex-1 rounded-xl border border-gold-500/30 px-4 py-3 text-sm text-bone-200">Annuler</button><button onClick={() => void deletePost(deleteCandidate)} disabled={busy} className="flex-1 rounded-xl bg-red-700 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Suppression…' : 'Supprimer'}</button></div></div></div>}
 
-    {expandedMedia && <div className="fixed inset-0 z-[80] flex flex-col bg-black"><div className="flex shrink-0 items-center justify-between border-b border-gold-500/20 bg-ink-950 px-4 py-3"><button onClick={() => setExpandedMedia(null)} className="flex items-center gap-2 py-2 text-sm font-semibold text-gold-300"><ArrowLeft size={20} /> Retour à Instagram</button><button onClick={() => setExpandedMedia(null)} aria-label="Fermer la photo" className="rounded-full p-2 text-bone-200 hover:bg-white/10"><X /></button></div><div className="flex min-h-0 flex-1 items-center justify-center p-2"><img src={expandedMedia.media_url} alt="Photo agrandie" className="max-h-full max-w-full object-contain" /></div></div>}
+    {expandedMedia && <div className="fixed inset-0 z-[80] flex flex-col bg-black" onClick={() => setExpandedMedia(null)}><div className="flex shrink-0 items-center justify-between border-b border-gold-500/20 bg-ink-950 px-4 py-3" onClick={e => e.stopPropagation()}><button onClick={() => setExpandedMedia(null)} className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-gold-300 hover:bg-ink-800"><ArrowLeft size={20} /> Retour à Instagram</button><button onClick={() => setExpandedMedia(null)} aria-label="Fermer la photo" className="rounded-full p-2 text-bone-200 hover:bg-white/10"><X /></button></div><div className="flex min-h-0 flex-1 items-center justify-center p-2" onClick={e => e.stopPropagation()}><img src={expandedMedia.media_url} alt="Photo agrandie" className="max-h-full max-w-full object-contain" /></div></div>}
 
     {showFollowers && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setShowFollowers(null)}><div className="max-h-[70%] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-ink-900 p-4" onClick={e => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{showFollowers === 'followers' ? 'Abonnés' : 'Abonnements'}</h3><button onClick={() => setShowFollowers(null)}><X /></button></div>{(showFollowers === 'followers' ? followers.map(f => f.follower_character_id) : following.map(f => f.followed_character_id)).map(id => <button key={id} onClick={() => { setShowFollowers(null); goProfile(id); }} className="flex w-full items-center gap-3 py-2"><Avatar character={characterMap.get(id)} /><span className="font-semibold">{fullName(characterMap.get(id))}</span></button>)}</div></div>}
   </div>;
