@@ -308,6 +308,13 @@ export default function InstagramApp({ characterId }: Props) {
       <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label="Notifications"><Heart size={25} />{unread > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-gold-500/20 bg-red-500" />}</button></div>
     </header>
 
+    <nav className="grid shrink-0 grid-cols-4 border-t border-gold-500/20 bg-ink-900 py-3">
+      <button onClick={() => setTab('home')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'home' ? 'text-gold-300' : 'text-bone-500'}`}><Home size={23} />Accueil</button>
+      <button onClick={() => setTab('search')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'search' ? 'text-gold-300' : 'text-bone-500'}`}><Search size={23} />Recherche</button>
+      <button onClick={() => setTab('create')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'create' ? 'text-gold-300' : 'text-bone-500'}`}><PlusSquare size={23} />Publier</button>
+      <button onClick={() => { setProfileId(characterId); setTab('profile'); }} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'profile' ? 'text-gold-300' : 'text-bone-500'}`}><UserRound size={23} />Profil</button>
+    </nav>
+
     {tab === 'home' && <main className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-ink-950 px-3 pb-4 pt-3">
       <section className="rounded-2xl border border-gold-500/20 bg-gradient-to-r from-ink-900 via-ink-900 to-ink-800 px-4 py-4 shadow-lg shadow-black/20">
         <div className="flex items-center gap-3">
@@ -345,12 +352,7 @@ export default function InstagramApp({ characterId }: Props) {
       <button onClick={() => void createPost()} disabled={!selectedFiles.length || uploading} className="mt-5 w-full rounded-xl bg-ink-800 py-3 font-semibold text-bone-100 disabled:opacity-40">{uploading ? 'Publication en cours…' : 'Partager'}</button>
     </main>}
 
-    <nav className="grid shrink-0 grid-cols-4 border-t border-gold-500/20 bg-ink-900 py-3">
-      <button onClick={() => setTab('home')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'home' ? 'text-gold-300' : 'text-bone-500'}`}><Home size={23} />Accueil</button>
-      <button onClick={() => setTab('search')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'search' ? 'text-gold-300' : 'text-bone-500'}`}><Search size={23} />Recherche</button>
-      <button onClick={() => setTab('create')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'create' ? 'text-gold-300' : 'text-bone-500'}`}><PlusSquare size={23} />Publier</button>
-      <button onClick={() => { setProfileId(characterId); setTab('profile'); }} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'profile' ? 'text-gold-300' : 'text-bone-500'}`}><UserRound size={23} />Profil</button>
-    </nav>
+
 
     {notice && <div className="fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-ink-800 px-4 py-2 text-sm text-bone-100 shadow-lg">{notice}</div>}
 
