@@ -1,5 +1,9 @@
-
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft, Bell, Camera, ChevronDown, ChevronLeft, ChevronRight, Heart,
+  Home, ImagePlus, MessageCircle, MoreHorizontal, PlusSquare, Search,
+  Send, Trash2, UserRound, UserRoundPlus, Video, X
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
 
@@ -10,952 +14,326 @@ type Character = {
   avatar_url: string | null;
   character_type: string | null;
 };
+type Media = { id?: string; media_url: string; media_type: 'image' | 'video'; thumbnail_url?: string | null; sort_order?: number };
+type Post = { id: string; character_id: string; image_url: string; caption: string | null; created_at: string; media: Media[]; tags: string[] };
+type Comment = { id: string; post_id: string; character_id: string; content: string; created_at: string; parent_comment_id: string | null };
+type Notification = { id: string; notification_type: string; title: string; body: string | null; related_id: string | null; actor_character_id: string | null; is_read: boolean; created_at: string };
 
-type Post = {
-  id: string;
-  character_id: string;
-  image_url: string;
-  caption: string | null;
-  created_at: string;
-};
-
-type Comment = {
-  id: string;
-  post_id: string;
-  character_id: string;
-  content: string;
-  created_at: string;
-};
-
-type Props = {
-  characterId: string;
-};
-
+type Props = { characterId: string };
+type Tab = 'home' | 'search' | 'create' | 'profile';
+const BUCKET = 'instagram-posts';
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'];
 
-const ALLOWED_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'video/mp4',
-  'video/webm',
-];
+const fullName = (c?: Character | null) => c ? [c.first_name, c.name].filter(Boolean).join(' ') : 'Personnage';
+const dateLabel = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+const mediaType = (file: File): 'image' | 'video' => file.type.startsWith('video/') ? 'video' : 'image';
 
-function getMediaPath(url: string) {
-  const marker = '/storage/v1/object/public/instagram-posts/';
-  const index = url.indexOf(marker);
-
-  if (index === -1) return null;
-
-  try {
-    return decodeURIComponent(
-      url.slice(index + marker.length).split('?')[0]
-    );
-  } catch {
-    return null;
-  }
-}
-
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function characterName(character: Character | undefined) {
-  if (!character) return 'Personnage';
-  return `${character.first_name || ''} ${character.name}`.trim();
-}
-
-function Avatar({
-  character,
-  size = 'h-11 w-11',
-}: {
-  character?: Character;
-  size?: string;
-}) {
-  if (character?.avatar_url) {
-    return (
-      <img
-        src={getDiscordCompatibleImageUrl(character.avatar_url)}
-        alt=""
-        className={`${size} shrink-0 rounded-full border border-gold-500/30 object-cover`}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={`flex ${size} shrink-0 items-center justify-center rounded-full bg-ink-950 text-xl text-gold-300`}
-    >
-      ♙
-    </div>
-  );
+function Avatar({ character, size = 'h-10 w-10' }: { character?: Character | null; size?: string }) {
+  return character?.avatar_url
+    ? <img src={getDiscordCompatibleImageUrl(character.avatar_url)} alt="" className={\`\${size} shrink-0 rounded-full object-cover\`} />
+    : <div className={\`\${size} shrink-0 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center\`}><UserRound size={20} /></div>;
 }
 
 export default function InstagramApp({ characterId }: Props) {
-  const [myCharacter, setMyCharacter] = useState<Character | null>(null);
+  const [me, setMe] = useState<Character | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [likes, setLikes] = useState<Record<string, string[]>>({});
   const [comments, setComments] = useState<Comment[]>([]);
-  const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
-
+  const [commentLikes, setCommentLikes] = useState<Record<string, string[]>>({});
+  const [follows, setFollows] = useState<{ follower_character_id: string; followed_character_id: string }[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [tab, setTab] = useState<Tab>('home');
+  const [profileId, setProfileId] = useState(characterId);
+  const [search, setSearch] = useState('');
   const [caption, setCaption] = useState('');
-  const [tagCharacterId, setTagCharacterId] = useState('');
-  const [taggedCharacterIds, setTaggedCharacterIds] = useState<string[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [filePreview, setFilePreview] = useState('');
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
-  const [expandedComments, setExpandedComments] = useState<string[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [taggedIds, setTaggedIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [activePost, setActivePost] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [showLikes, setShowLikes] = useState<string | null>(null);
+  const [showFollowers, setShowFollowers] = useState<'followers' | 'following' | null>(null);
+  const [editingBio, setEditingBio] = useState(false);
+  const [bio, setBio] = useState('');
+  const [myBio, setMyBio] = useState('');
+  const [carousel, setCarousel] = useState<Record<string, number>>({});
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  const [loading, setLoading] = useState(true);
-  const [publishing, setPublishing] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const characterMap = useMemo(() => new Map(characters.map(c => [c.id, c])), [characters]);
+  const profile = characterMap.get(profileId) || (profileId === characterId ? me : null);
+  const myPosts = posts.filter(p => p.character_id === profileId);
+  const followers = follows.filter(f => f.followed_character_id === profileId);
+  const following = follows.filter(f => f.follower_character_id === profileId);
+  const isFollowing = follows.some(f => f.follower_character_id === characterId && f.followed_character_id === profileId);
+  const unread = notifications.filter(n => !n.is_read).length;
 
-  const activeProfile = characters.find(
-    (character) => character.id === activeProfileId
-  );
-
-  async function loadInstagram() {
-    setLoading(true);
-    setError('');
-
-    const { error: activeError } = await supabase.rpc(
-      'set_active_character',
-      { p_character_id: characterId }
-    );
-
-    if (activeError) {
-      console.error(activeError);
-      setError("Impossible d'ouvrir Instagram pour ce personnage.");
-      setLoading(false);
-      return;
-    }
-
-    const [
-      { data: myData, error: myError },
-      { data: characterData, error: characterError },
-      { data: postData, error: postError },
-      { data: likeData, error: likeError },
-      { data: commentData, error: commentError },
-    ] = await Promise.all([
-      supabase
-        .from('characters')
-        .select('id, name, first_name, avatar_url, character_type')
-        .eq('id', characterId)
-        .maybeSingle(),
-      supabase
-        .from('characters')
-        .select('id, name, first_name, avatar_url, character_type')
-        .order('name', { ascending: true }),
-      supabase
-        .from('instagram_posts')
-        .select('*')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('instagram_likes')
-        .select('post_id, character_id')
-        .eq('character_id', characterId),
-      supabase
-        .from('instagram_comments')
-        .select('*')
-        .order('created_at', { ascending: true }),
+  const loadAll = useCallback(async () => {
+    const [chars, postRows, likeRows, commentRows, followRows, notifRows, profileRow] = await Promise.all([
+      supabase.from('characters').select('id,name,first_name,avatar_url,character_type').eq('status', 'accepted').order('name'),
+      supabase.from('instagram_posts').select('id,character_id,image_url,caption,created_at').order('created_at', { ascending: false }),
+      supabase.from('instagram_likes').select('post_id,character_id'),
+      supabase.from('instagram_comments').select('id,post_id,character_id,content,created_at,parent_comment_id').order('created_at'),
+      supabase.from('instagram_follows').select('follower_character_id,followed_character_id'),
+      supabase.from('notifications').select('id,notification_type,title,body,related_id,actor_character_id,is_read,created_at').eq('recipient_character_id', characterId).eq('source_app', 'instagram').order('created_at', { ascending: false }).limit(100),
+      supabase.from('instagram_profiles').select('bio').eq('character_id', characterId).maybeSingle()
     ]);
-
-    if (myError || characterError || postError || likeError || commentError) {
-      console.error(
-        myError,
-        characterError,
-        postError,
-        likeError,
-        commentError
-      );
-      setError("Impossible de charger complètement Instagram.");
-      setLoading(false);
-      return;
+    if (chars.data) {
+      setCharacters(chars.data as Character[]);
+      setMe((chars.data as Character[]).find(c => c.id === characterId) || null);
     }
-
-    setMyCharacter(myData as Character | null);
-    setCharacters((characterData || []) as Character[]);
-    setPosts((postData || []) as Post[]);
-    setLikedPostIds((likeData || []).map((like) => like.post_id));
-    setComments((commentData || []) as Comment[]);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      await loadInstagram();
+    if (postRows.data) {
+      const rows = postRows.data as Omit<Post, 'media' | 'tags'>[];
+      const ids = rows.map(p => p.id);
+      const [mediaRows, tagRows] = ids.length ? await Promise.all([
+        supabase.from('instagram_post_media').select('id,post_id,media_url,media_type,thumbnail_url,sort_order').in('post_id', ids).order('sort_order'),
+        supabase.from('instagram_post_tags').select('post_id,tagged_character_id').in('post_id', ids)
+      ]) : [{ data: [] }, { data: [] }];
+      setPosts(rows.map(p => {
+        const media = ((mediaRows.data || []) as (Media & { post_id: string })[]).filter(m => m.post_id === p.id).map(({ post_id: _p, ...m }) => m);
+        return { ...p, media: media.length ? media : [{ media_url: p.image_url, media_type: p.image_url.match(/\.(mp4|webm)(\?|$)/i) ? 'video' : 'image' }], tags: ((tagRows.data || []) as { post_id: string; tagged_character_id: string }[]).filter(t => t.post_id === p.id).map(t => t.tagged_character_id) };
+      }));
     }
-
-    if (mounted) load();
-
-    return () => {
-      mounted = false;
-    };
+    if (likeRows.data) {
+      const grouped: Record<string, string[]> = {};
+      likeRows.data.forEach((l: { post_id: string; character_id: string }) => { (grouped[l.post_id] ||= []).push(l.character_id); });
+      setLikes(grouped);
+    }
+    if (commentRows.data) setComments(commentRows.data as Comment[]);
+    if (followRows.data) setFollows(followRows.data as { follower_character_id: string; followed_character_id: string }[]);
+    if (notifRows.data) setNotifications(notifRows.data as Notification[]);
+    if (profileRow.data) { setMyBio(profileRow.data.bio || ''); setBio(profileRow.data.bio || ''); }
   }, [characterId]);
 
-  function chooseFile(file: File | undefined) {
-    setError('');
-    setMessage('');
+  useEffect(() => { void loadAll(); }, [loadAll]);
 
-    if (!file) return;
+  useEffect(() => {
+    let alive = true;
+    const loadCommentLikes = async () => {
+      const ids = comments.map(c => c.id);
+      if (!ids.length) { if (alive) setCommentLikes({}); return; }
+      const { data } = await supabase.from('instagram_comment_likes').select('comment_id,character_id').in('comment_id', ids);
+      if (!alive || !data) return;
+      const grouped: Record<string, string[]> = {};
+      data.forEach((l: { comment_id: string; character_id: string }) => { (grouped[l.comment_id] ||= []).push(l.character_id); });
+      setCommentLikes(grouped);
+    };
+    void loadCommentLikes();
+    return () => { alive = false; };
+  }, [comments]);
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setError('Format non accepté. Choisis une image ou une vidéo.');
-      return;
+  const goProfile = (id: string) => { setProfileId(id); setTab('profile'); setShowFollowers(null); setShowLikes(null); };
+  const notify = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(''), 3500); };
+
+  const toggleFollow = async (targetId: string) => {
+    if (targetId === characterId || busy) return;
+    setBusy(true);
+    const existing = follows.some(f => f.follower_character_id === characterId && f.followed_character_id === targetId);
+    const result = existing
+      ? await supabase.from('instagram_follows').delete().eq('follower_character_id', characterId).eq('followed_character_id', targetId)
+      : await supabase.from('instagram_follows').insert({ follower_character_id: characterId, followed_character_id: targetId });
+    setBusy(false);
+    if (result.error) { notify("Impossible de modifier l'abonnement."); return; }
+    await loadAll();
+  };
+
+  const togglePostLike = async (postId: string) => {
+    const mine = (likes[postId] || []).includes(characterId);
+    const result = mine
+      ? await supabase.from('instagram_likes').delete().eq('post_id', postId).eq('character_id', characterId)
+      : await supabase.from('instagram_likes').insert({ post_id: postId, character_id: characterId });
+    if (result.error) { notify("Impossible d'enregistrer le J'aime."); return; }
+    await loadAll();
+  };
+
+  const toggleCommentLike = async (commentId: string) => {
+    const mine = (commentLikes[commentId] || []).includes(characterId);
+    const result = mine
+      ? await supabase.from('instagram_comment_likes').delete().eq('comment_id', commentId).eq('character_id', characterId)
+      : await supabase.from('instagram_comment_likes').insert({ comment_id: commentId, character_id: characterId });
+    if (result.error) { notify("Impossible d'aimer ce commentaire."); return; }
+    const { data } = await supabase.from('instagram_comment_likes').select('comment_id,character_id').in('comment_id', comments.map(c => c.id));
+    const grouped: Record<string, string[]> = {};
+    (data || []).forEach((l: { comment_id: string; character_id: string }) => { (grouped[l.comment_id] ||= []).push(l.character_id); });
+    setCommentLikes(grouped);
+  };
+
+  const submitComment = async (postId: string) => {
+    const value = commentText.trim();
+    if (!value) return;
+    const { error } = await supabase.from('instagram_comments').insert({ post_id: postId, character_id: characterId, content: value, parent_comment_id: replyTo?.id || null });
+    if (error) { notify("Impossible de publier le commentaire."); return; }
+    setCommentText(''); setReplyTo(null); await loadAll();
+  };
+
+  const deleteComment = async (comment: Comment) => {
+    if (comment.character_id !== characterId) return;
+    const { error } = await supabase.from('instagram_comments').delete().eq('id', comment.id).eq('character_id', characterId);
+    if (error) { notify("Impossible de supprimer ce commentaire."); return; }
+    await loadAll();
+  };
+
+  const deletePost = async (post: Post) => {
+    if (post.character_id !== characterId || !window.confirm('Supprimer définitivement cette publication ?')) return;
+    setBusy(true);
+    const media = post.media.map(m => m.media_url);
+    const paths = media.map(url => {
+      const marker = '/storage/v1/object/public/' + BUCKET + '/';
+      const i = url.indexOf(marker);
+      return i >= 0 ? decodeURIComponent(url.slice(i + marker.length).split('?')[0]) : null;
+    }).filter(Boolean) as string[];
+    const { error } = await supabase.from('instagram_posts').delete().eq('id', post.id).eq('character_id', characterId);
+    if (error) { setBusy(false); notify("La publication n'a pas pu être supprimée. Vérifie les autorisations."); return; }
+    if (paths.length) {
+      const { error: storageError } = await supabase.storage.from(BUCKET).remove(paths);
+      if (storageError) console.error('Instagram media cleanup:', storageError);
     }
+    setBusy(false); setActivePost(null); await loadAll(); notify('Publication supprimée.');
+  };
 
-    if (file.size > MAX_FILE_SIZE) {
-      setError('Le fichier ne doit pas dépasser 50 Mo.');
-      return;
+  const createPost = async () => {
+    if (!selectedFiles.length || uploading) return;
+    const videoCount = selectedFiles.filter(f => mediaType(f) === 'video').length;
+    if (videoCount > 1 || (videoCount && selectedFiles.length > 1)) { notify('Choisis plusieurs photos ou une seule vidéo.'); return; }
+    if (selectedFiles.some(f => !ACCEPTED.includes(f.type) || f.size > MAX_FILE_SIZE)) { notify('Format non accepté ou fichier supérieur à 50 Mo.'); return; }
+    setUploading(true);
+    const uploaded: Media[] = [];
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const path = \`\${characterId}/\${crypto.randomUUID()}.\${ext}\`;
+      const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type });
+      if (uploadError) { notify("Échec de l'envoi du média."); setUploading(false); return; }
+      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+      uploaded.push({ media_url: data.publicUrl, media_type: mediaType(file), sort_order: i });
     }
-
-    if (filePreview) URL.revokeObjectURL(filePreview);
-
-    setSelectedFile(file);
-    setFilePreview(URL.createObjectURL(file));
-  }
-
-  function clearSelectedFile() {
-    if (filePreview) URL.revokeObjectURL(filePreview);
-    setSelectedFile(null);
-    setFilePreview('');
-  }
-
-  async function publishPost(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!selectedFile || publishing) {
-      setError('Choisis une photo ou une vidéo avant de publier.');
-      return;
+    const { data: post, error } = await supabase.from('instagram_posts').insert({ character_id: characterId, image_url: uploaded[0].media_url, caption: caption.trim() || null }).select('id').single();
+    if (error || !post) { notify("Impossible de créer la publication."); setUploading(false); return; }
+    const mediaInsert = await supabase.from('instagram_post_media').insert(uploaded.map(m => ({ post_id: post.id, media_url: m.media_url, media_type: m.media_type, thumbnail_url: m.media_type === 'video' ? m.media_url : null, sort_order: m.sort_order })));
+    if (mediaInsert.error) console.error('Instagram media rows:', mediaInsert.error);
+    if (taggedIds.length) {
+      const tagInsert = await supabase.from('instagram_post_tags').insert(taggedIds.map(id => ({ post_id: post.id, tagged_character_id: id })));
+      if (tagInsert.error) console.error('Instagram tags:', tagInsert.error);
     }
+    setSelectedFiles([]); setCaption(''); setTaggedIds([]); setUploading(false); setTab('home'); await loadAll(); notify('Publication ajoutée.');
+  };
 
-    setPublishing(true);
-    setError('');
-    setMessage('');
+  const saveBio = async () => {
+    const { error } = await supabase.from('instagram_profiles').upsert({ character_id: characterId, bio: bio.trim(), updated_at: new Date().toISOString() }, { onConflict: 'character_id' });
+    if (error) { notify("Impossible d'enregistrer la biographie."); return; }
+    setMyBio(bio.trim()); setEditingBio(false);
+  };
 
-    try {
-      const extension = selectedFile.name.split('.').pop()?.toLowerCase() || 'file';
-      const filePath = `${characterId}/${crypto.randomUUID()}.${extension}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('instagram-posts')
-        .upload(filePath, selectedFile, {
-          contentType: selectedFile.type,
-          upsert: false,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: publicData } = supabase.storage
-        .from('instagram-posts')
-        .getPublicUrl(filePath);
-
-      const taggedNames = characters
-        .filter((character) => taggedCharacterIds.includes(character.id))
-        .map((character) => `@${characterName(character)}`);
-
-      const fullCaption = [
-        caption.trim(),
-        taggedNames.length > 0 ? `Identifié(e)s : ${taggedNames.join(' ')}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n\n');
-
-      const { error: insertError } = await supabase
-        .from('instagram_posts')
-        .insert({
-          character_id: characterId,
-          image_url: publicData.publicUrl,
-          caption: fullCaption || null,
-        });
-
-      if (insertError) {
-        await supabase.storage.from('instagram-posts').remove([filePath]);
-        throw insertError;
-      }
-
-      // Chaque autre personnage reçoit une notification pour cette nouvelle publication.
-      const otherCharacterIds = characters
-        .filter((character) => character.id !== characterId)
-        .map((character) => character.id);
-
-      if (otherCharacterIds.length > 0) {
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert(
-            otherCharacterIds.map((recipientCharacterId) => ({
-              recipient_character_id: recipientCharacterId,
-              source_app: 'instagram',
-              is_read: false,
-            }))
-          );
-
-        if (notificationError) {
-          console.error(
-            "Impossible de créer les notifications Instagram :",
-            notificationError
-          );
-        }
-      }
-
-      setCaption('');
-      setTagCharacterId('');
-      setTaggedCharacterIds([]);
-      clearSelectedFile();
-      setMessage('Publication ajoutée à votre fil !');
-      await loadInstagram();
-    } catch (uploadError) {
-      console.error(uploadError);
-      setError(
-        "La publication n'a pas pu être envoyée. Vérifie ta connexion et réessaie."
-      );
-    } finally {
-      setPublishing(false);
+  const openNotifications = async () => {
+    setShowNotifications(true);
+    if (unread) {
+      const ids = notifications.filter(n => !n.is_read).map(n => n.id);
+      await supabase.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).in('id', ids);
+      setNotifications(old => old.map(n => ({ ...n, is_read: true })));
     }
-  }
+  };
 
-  async function toggleLike(post: Post) {
-    const alreadyLiked = likedPostIds.includes(post.id);
+  const deleteNotification = async (id: string) => {
+    await supabase.from('notifications').delete().eq('id', id).eq('recipient_character_id', characterId);
+    setNotifications(old => old.filter(n => n.id !== id));
+  };
 
-    setError('');
-
-    if (alreadyLiked) {
-      const { error } = await supabase
-        .from('instagram_likes')
-        .delete()
-        .eq('post_id', post.id)
-        .eq('character_id', characterId);
-
-      if (error) {
-        console.error(error);
-        setError("Impossible de retirer ce J'aime.");
-        return;
-      }
-
-      setLikedPostIds((current) =>
-        current.filter((id) => id !== post.id)
-      );
-    } else {
-      const { error } = await supabase.from('instagram_likes').insert({
-        post_id: post.id,
-        character_id: characterId,
-      });
-
-      if (error) {
-        console.error(error);
-        setError("Impossible d'ajouter ce J'aime.");
-        return;
-      }
-
-      setLikedPostIds((current) => [...current, post.id]);
-    }
-  }
-
-  async function sendComment(postId: string) {
-    const content = (commentInputs[postId] || '').trim();
-
-    if (!content) return;
-
-    const { error } = await supabase.from('instagram_comments').insert({
-      post_id: postId,
-      character_id: characterId,
-      content,
-    });
-
-    if (error) {
-      console.error(error);
-      setError("Impossible d'envoyer le commentaire.");
-      return;
-    }
-
-    setCommentInputs((current) => ({ ...current, [postId]: '' }));
-
-    const { data, error: loadError } = await supabase
-      .from('instagram_comments')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (loadError) {
-      console.error(loadError);
-      setError('Commentaire envoyé, mais actualisation impossible.');
-    } else {
-      setComments((data || []) as Comment[]);
-    }
-  }
-
-  async function deleteComment(comment: Comment) {
-    if (!window.confirm('Supprimer ce commentaire ?')) return;
-
-    const { error } = await supabase
-      .from('instagram_comments')
-      .delete()
-      .eq('id', comment.id);
-
-    if (error) {
-      console.error(error);
-      setError('Impossible de supprimer ce commentaire.');
-      return;
-    }
-
-    setComments((current) =>
-      current.filter((item) => item.id !== comment.id)
-    );
-  }
-
-  async function deletePost(post: Post) {
-    if (!window.confirm('Supprimer définitivement cette publication ?')) {
-      return;
-    }
-
-    setError('');
-    setMessage('');
-
-    // Supprimer d'abord les éléments liés pour éviter qu'une contrainte
-    // de clé étrangère empêche la suppression de la publication.
-    const { error: likesError } = await supabase
-      .from('instagram_likes')
-      .delete()
-      .eq('post_id', post.id);
-
-    if (likesError) {
-      console.error('Erreur lors de la suppression des likes :', likesError);
-      setError("Impossible de supprimer les J'aime associés à cette publication.");
-      return;
-    }
-
-    const { error: commentsError } = await supabase
-      .from('instagram_comments')
-      .delete()
-      .eq('post_id', post.id);
-
-    if (commentsError) {
-      console.error('Erreur lors de la suppression des commentaires :', commentsError);
-      setError('Impossible de supprimer les commentaires associés à cette publication.');
-      return;
-    }
-
-    const { error: postError } = await supabase
-      .from('instagram_posts')
-      .delete()
-      .eq('id', post.id)
-      .eq('character_id', characterId);
-
-    if (postError) {
-      console.error('Erreur lors de la suppression de la publication :', postError);
-      setError("La publication n'a pas pu être supprimée. Vérifie que tu es bien connecté avec le personnage qui l'a publiée.");
-      return;
-    }
-
-    const filePath = getMediaPath(post.image_url);
-
-    if (filePath) {
-      const { error: storageError } = await supabase.storage
-        .from('instagram-posts')
-        .remove([filePath]);
-
-      if (storageError) {
-        console.error('Erreur lors de la suppression du média Instagram :', storageError);
-      }
-    }
-
-    setPosts((current) => current.filter((item) => item.id !== post.id));
-    setComments((current) =>
-      current.filter((item) => item.post_id !== post.id)
-    );
-    setLikedPostIds((current) => current.filter((id) => id !== post.id));
-    setMessage('Publication supprimée.');
-  }
-
-  function toggleComments(postId: string) {
-    setExpandedComments((current) =>
-      current.includes(postId)
-        ? current.filter((id) => id !== postId)
-        : [...current, postId]
-    );
-  }
-
-  function renderMedia(post: Post) {
-    const isVideo = /\.(mp4|webm)(\?|$)/i.test(post.image_url);
-
-    if (isVideo) {
-      return (
-        <video
-          src={getDiscordCompatibleImageUrl(post.image_url)}
-          controls
-          playsInline
-          preload="metadata"
-          className="max-h-[650px] w-full bg-black object-contain"
-        />
-      );
-    }
-
-    return (
-      <img
-        src={getDiscordCompatibleImageUrl(post.image_url)}
-        alt="Publication Instagram"
-        loading="lazy"
-        className="max-h-[650px] w-full bg-ink-950 object-contain"
-      />
-    );
-  }
-
-  function renderPost(post: Post) {
-    const author = characters.find(
-      (character) => character.id === post.character_id
-    );
-    const postComments = comments.filter(
-      (comment) => comment.post_id === post.id
-    );
-    const isMine = post.character_id === characterId;
-    const liked = likedPostIds.includes(post.id);
-
-    return (
-      <article
-        key={post.id}
-        className="overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-900/80"
-      >
-        <header className="flex items-center gap-3 p-4">
-          <button
-            type="button"
-            onClick={() => setActiveProfileId(post.character_id)}
-            className="flex min-w-0 items-center gap-3 text-left"
-          >
-            <Avatar character={author} />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-bone-100">
-                {characterName(author)}
-              </span>
-              <span className="block text-xs text-bone-400">
-                {formatDate(post.created_at)}
-              </span>
-            </span>
-          </button>
-
-          {isMine && (
-            <button
-              type="button"
-              onClick={() => deletePost(post)}
-              className="ml-auto rounded-lg px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/10"
-            >
-              Supprimer
-            </button>
-          )}
-        </header>
-
-        {renderMedia(post)}
-
-        <div className="p-4">
-          <div className="flex items-center gap-5">
-            <button
-              type="button"
-              onClick={() => toggleLike(post)}
-              className={`text-sm transition ${
-                liked ? 'text-red-400' : 'text-bone-200 hover:text-red-300'
-              }`}
-            >
-              {liked ? '♥ J’aime' : '♡ J’aime'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => toggleComments(post.id)}
-              className="text-sm text-bone-300 transition hover:text-gold-300"
-            >
-              ◯ Commentaires ({postComments.length})
-            </button>
-          </div>
-
-          {post.caption && (
-            <p className="mt-4 whitespace-pre-wrap break-words text-sm text-bone-100">
-              <span className="font-semibold">
-                {characterName(author)}
-              </span>{' '}
-              {post.caption}
-            </p>
-          )}
-
-          {expandedComments.includes(post.id) && (
-            <div className="mt-4 border-t border-white/10 pt-4">
-              <div className="space-y-3">
-                {postComments.length === 0 ? (
-                  <p className="text-sm text-bone-500">
-                    Aucun commentaire pour le moment.
-                  </p>
-                ) : (
-                  postComments.map((comment) => {
-                    const commenter = characters.find(
-                      (character) => character.id === comment.character_id
-                    );
-
-                    return (
-                      <div key={comment.id} className="flex gap-2">
-                        <Avatar character={commenter} size="h-8 w-8" />
-                        <div className="min-w-0 flex-1 rounded-xl bg-ink-950 p-3">
-                          <p className="text-xs font-semibold text-gold-300">
-                            {characterName(commenter)}
-                          </p>
-                          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-bone-200">
-                            {comment.content}
-                          </p>
-                          {comment.character_id === characterId && (
-                            <button
-                              type="button"
-                              onClick={() => deleteComment(comment)}
-                              className="mt-2 text-xs text-red-300 hover:text-red-200"
-                            >
-                              Supprimer
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  sendComment(post.id);
-                }}
-                className="mt-4 flex gap-2"
-              >
-                <input
-                  type="text"
-                  value={commentInputs[post.id] || ''}
-                  onChange={(event) =>
-                    setCommentInputs((current) => ({
-                      ...current,
-                      [post.id]: event.target.value,
-                    }))
-                  }
-                  maxLength={1000}
-                  placeholder="Ajouter un commentaire..."
-                  className="min-w-0 flex-1 rounded-xl border border-gold-500/20 bg-ink-950 px-3 py-2 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400/50"
-                />
-                <button
-                  type="submit"
-                  disabled={!(commentInputs[post.id] || '').trim()}
-                  className="rounded-xl bg-gold-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-gold-400 disabled:opacity-40"
-                >
-                  Envoyer
-                </button>
-              </form>
-            </div>
-          )}
+  const profilePost = (post: Post) => { setActivePost(post.id); setShowLikes(null); };
+  const orderedComments = (postId: string) => comments.filter(c => c.post_id === postId && !c.parent_comment_id);
+  const repliesFor = (id: string) => comments.filter(c => c.parent_comment_id === id);
+  const renderComment = (comment: Comment) => {
+    const owner = characterMap.get(comment.character_id);
+    const mine = comment.character_id === characterId;
+    return <div key={comment.id} className="py-2">
+      <div className="flex items-start gap-2">
+        <button onClick={() => goProfile(comment.character_id)}><Avatar character={owner} size="h-8 w-8" /></button>
+        <div className="min-w-0 flex-1 text-sm"><p><button className="font-semibold text-stone-900" onClick={() => goProfile(comment.character_id)}>{fullName(owner)}</button> <span className="text-stone-700">{comment.content}</span></p>
+          <div className="mt-1 flex items-center gap-3 text-xs text-stone-500"><span>{dateLabel(comment.created_at)}</span><button onClick={() => setReplyTo(comment)} className="font-semibold">Répondre</button>{mine && <button onClick={() => void deleteComment(comment)}><Trash2 size={12} /></button>}</div>
         </div>
-      </article>
-    );
-  }
-
-  const profilePosts = posts.filter(
-    (post) => post.character_id === activeProfileId
-  );
-
-  return (
-    <section className="flex min-h-[600px] flex-1 flex-col px-4 py-6 text-bone-100 sm:px-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-gold-300">
-              Sterling Campus
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold">Instagram</h1>
-          </div>
-          <span className="text-3xl">◎</span>
-        </div>
-
-        {error && (
-          <p className="mt-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
-            {error}
-          </p>
-        )}
-
-        {message && (
-          <p className="mt-4 rounded-xl border border-green-500/20 bg-green-950/20 p-3 text-sm text-green-300">
-            {message}
-          </p>
-        )}
-
-        {loading ? (
-          <p className="mt-8 text-sm text-bone-300">
-            Chargement d'Instagram...
-          </p>
-        ) : !myCharacter ? (
-          <p className="mt-8 text-sm text-red-300">
-            Personnage introuvable.
-          </p>
-        ) : (
-          <>
-            <div className="mt-6 flex gap-2 border-b border-white/10 pb-4">
-              <button
-                type="button"
-                onClick={() => setActiveProfileId(null)}
-                className={`rounded-xl px-4 py-2 text-sm ${
-                  activeProfileId === null
-                    ? 'bg-gold-500 text-ink-950'
-                    : 'border border-gold-500/20 text-bone-300 hover:bg-white/5'
-                }`}
-              >
-                Fil d'actualité
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveProfileId(characterId)}
-                className={`rounded-xl px-4 py-2 text-sm ${
-                  activeProfileId === characterId
-                    ? 'bg-gold-500 text-ink-950'
-                    : 'border border-gold-500/20 text-bone-300 hover:bg-white/5'
-                }`}
-              >
-                Mon profil
-              </button>
-            </div>
-
-            {activeProfileId === null ? (
-              <>
-                <form
-                  onSubmit={publishPost}
-                  className="mt-6 rounded-2xl border border-gold-500/20 bg-ink-900/70 p-4"
-                >
-                  <div className="flex items-center gap-3">
-                    <Avatar character={myCharacter} />
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {characterName(myCharacter)}
-                      </p>
-                      <p className="text-xs text-bone-400">
-                        Nouvelle publication
-                      </p>
-                    </div>
-                  </div>
-
-                  <textarea
-                    value={caption}
-                    onChange={(event) => setCaption(event.target.value)}
-                    maxLength={2200}
-                    rows={3}
-                    placeholder="Exprime-toi..."
-                    className="mt-4 w-full resize-y rounded-xl border border-gold-500/20 bg-ink-950 p-3 text-sm text-bone-100 outline-none placeholder:text-bone-500 focus:border-gold-400/50"
-                  />
-
-                  <div className="mt-4 rounded-xl border border-gold-500/20 bg-ink-950 p-3">
-                    <p className="text-sm font-semibold text-bone-100">
-                      Identifier des personnages
-                    </p>
-                    <p className="mt-1 text-xs text-bone-400">
-                      Sélectionne les personnages validés que tu souhaites taguer dans ta publication.
-                    </p>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <select
-                        value={tagCharacterId}
-                        onChange={(event) => setTagCharacterId(event.target.value)}
-                        disabled={publishing}
-                        className="min-w-0 flex-1 rounded-xl border border-gold-500/20 bg-ink-900 px-3 py-2 text-sm text-bone-100 outline-none focus:border-gold-400/50"
-                      >
-                        <option value="">Choisir un personnage...</option>
-                        {characters
-                          .filter(
-                            (character) =>
-                              character.id !== characterId &&
-                              !taggedCharacterIds.includes(character.id)
-                          )
-                          .map((character) => (
-                            <option key={character.id} value={character.id}>
-                              {characterName(character)}
-                            </option>
-                          ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={!tagCharacterId || publishing}
-                        onClick={() => {
-                          setTaggedCharacterIds((current) =>
-                            current.includes(tagCharacterId)
-                              ? current
-                              : [...current, tagCharacterId]
-                          );
-                          setTagCharacterId('');
-                        }}
-                        className="rounded-xl border border-gold-500/40 px-4 py-2 text-sm text-gold-300 transition hover:bg-gold-500/10 disabled:opacity-40"
-                      >
-                        Ajouter
-                      </button>
-                    </div>
-
-                    {taggedCharacterIds.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {taggedCharacterIds.map((taggedId) => {
-                          const taggedCharacter = characters.find(
-                            (character) => character.id === taggedId
-                          );
-                          if (!taggedCharacter) return null;
-
-                          return (
-                            <span
-                              key={taggedId}
-                              className="inline-flex items-center gap-2 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 text-xs text-gold-200"
-                            >
-                              @{characterName(taggedCharacter)}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setTaggedCharacterIds((current) =>
-                                    current.filter((id) => id !== taggedId)
-                                  )
-                                }
-                                disabled={publishing}
-                                aria-label={`Retirer ${characterName(taggedCharacter)}`}
-                                className="text-bone-300 hover:text-red-300"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  <label className="mt-3 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-gold-500/40 px-4 py-4 text-sm text-gold-300 transition hover:bg-gold-500/10">
-                    <span>＋ Ajouter une photo ou une vidéo</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
-                      className="hidden"
-                      disabled={publishing}
-                      onChange={(event) => {
-                        chooseFile(event.target.files?.[0]);
-                        event.target.value = '';
-                      }}
-                    />
-                  </label>
-
-                  {selectedFile && filePreview && (
-                    <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-black">
-                      {selectedFile.type.startsWith('video/') ? (
-                        <video
-                          src={filePreview}
-                          controls
-                          playsInline
-                          className="max-h-80 w-full object-contain"
-                        />
-                      ) : (
-                        <img
-                          src={filePreview}
-                          alt="Aperçu de la publication"
-                          className="max-h-80 w-full object-contain"
-                        />
-                      )}
-                      <div className="flex items-center justify-between gap-3 p-3">
-                        <span className="truncate text-xs text-bone-400">
-                          {selectedFile.name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={clearSelectedFile}
-                          className="shrink-0 text-xs text-red-300"
-                        >
-                          Retirer
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <p className="text-xs text-bone-500">
-                      Photo ou vidéo · 50 Mo maximum
-                    </p>
-                    <button
-                      type="submit"
-                      disabled={!selectedFile || publishing}
-                      className="rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {publishing ? 'Publication...' : 'Publier'}
-                    </button>
-                  </div>
-                </form>
-
-                <div className="mt-6 space-y-6">
-                  {posts.length === 0 ? (
-                    <div className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-8 text-center">
-                      <span className="text-5xl text-gold-300/60">◎</span>
-                      <h2 className="mt-4 text-lg font-semibold">
-                        Votre fil est encore vide
-                      </h2>
-                      <p className="mt-2 text-sm text-bone-400">
-                        Les publications des personnages apparaîtront ici.
-                      </p>
-                    </div>
-                  ) : (
-                    posts.map(renderPost)
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="mt-6">
-                {activeProfile && (
-                  <div className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-5">
-                    <div className="flex items-center gap-4">
-                      <Avatar character={activeProfile} size="h-20 w-20" />
-                      <div className="min-w-0">
-                        <h2 className="text-xl font-semibold">
-                          {characterName(activeProfile)}
-                        </h2>
-                        <p className="mt-1 text-sm text-bone-400">
-                          {activeProfile.character_type || 'Personnage'}
-                        </p>
-                        <p className="mt-2 text-xs text-gold-300">
-                          {profilePosts.length}{' '}
-                          {profilePosts.length > 1
-                            ? 'publications'
-                            : 'publication'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-6 flex flex-wrap gap-2">
-                  {characters
-                    .filter((character) => character.id !== activeProfileId)
-                    .map((character) => (
-                      <button
-                        key={character.id}
-                        type="button"
-                        onClick={() => setActiveProfileId(character.id)}
-                        className="flex items-center gap-2 rounded-xl border border-gold-500/20 bg-ink-900/70 px-3 py-2 text-xs text-bone-300 hover:bg-gold-500/10"
-                      >
-                        <Avatar character={character} size="h-7 w-7" />
-                        {characterName(character)}
-                      </button>
-                    ))}
-                </div>
-
-                <div className="mt-6 space-y-6">
-                  {profilePosts.length === 0 ? (
-                    <p className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-8 text-center text-sm text-bone-400">
-                      Aucune publication sur ce profil.
-                    </p>
-                  ) : (
-                    profilePosts.map(renderPost)
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        )}
+        <button onClick={() => void toggleCommentLike(comment.id)} className="flex flex-col items-center text-xs text-stone-500"><Heart size={15} fill={(commentLikes[comment.id] || []).includes(characterId) ? '#d9465f' : 'none'} color={(commentLikes[comment.id] || []).includes(characterId) ? '#d9465f' : 'currentColor'} />{(commentLikes[comment.id] || []).length || ''}</button>
       </div>
-    </section>
-  );
+      {repliesFor(comment.id).map(reply => <div key={reply.id} className="ml-10 mt-2">{renderComment(reply)}</div>)}
+    </div>;
+  };
+
+  const PostCard = ({ post }: { post: Post }) => {
+    const owner = characterMap.get(post.character_id);
+    const current = carousel[post.id] || 0;
+    const item = post.media[current] || post.media[0];
+    const mine = post.character_id === characterId;
+    return <article className="border-b border-stone-200 bg-white">
+      <div className="flex items-center gap-3 px-3 py-3">
+        <button onClick={() => goProfile(post.character_id)}><Avatar character={owner} /></button>
+        <button onClick={() => goProfile(post.character_id)} className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-stone-900">{fullName(owner)}</span><span className="text-xs text-stone-500">{dateLabel(post.created_at)}</span></button>
+        {mine && <button onClick={() => void deletePost(post)} disabled={busy} className="p-2 text-stone-500"><MoreHorizontal /></button>}
+      </div>
+      <div className="relative bg-black">
+        {item?.media_type === 'video'
+          ? <video src={item.media_url} poster={item.thumbnail_url || undefined} controls playsInline preload="metadata" className="max-h-[560px] w-full object-contain" />
+          : <img src={item?.media_url || post.image_url} alt="" className="max-h-[560px] w-full object-contain" />}
+        {post.media.length > 1 && <><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.max(0, current - 1) }))} disabled={current === 0} className="absolute left-2 top-1/2 rounded-full bg-white/80 p-2 disabled:opacity-30"><ChevronLeft size={18} /></button><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.min(post.media.length - 1, current + 1) }))} disabled={current === post.media.length - 1} className="absolute right-2 top-1/2 rounded-full bg-white/80 p-2 disabled:opacity-30"><ChevronRight size={18} /></button><span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-1 text-xs text-white">{current + 1}/{post.media.length}</span></>}
+      </div>
+      <div className="px-3 pb-3 pt-2">
+        <div className="flex items-center gap-4"><button onClick={() => void togglePostLike(post.id)} aria-label="J'aime"><Heart size={25} color={(likes[post.id] || []).includes(characterId) ? '#e0445e' : '#292524'} fill={(likes[post.id] || []).includes(characterId) ? '#e0445e' : 'none'} /></button><button onClick={() => setActivePost(post.id)} aria-label="Commentaires"><MessageCircle size={24} /></button></div>
+        <button onClick={() => setShowLikes(post.id)} className="mt-2 text-sm font-semibold">{(likes[post.id] || []).length} J’aime</button>
+        {post.caption && <p className="mt-1 text-sm text-stone-800"><button onClick={() => goProfile(post.character_id)} className="mr-1 font-semibold">{fullName(owner)}</button>{post.caption}</p>}
+        {post.tags.length > 0 && <p className="mt-1 text-xs text-stone-500">Avec {post.tags.map(id => fullName(characterMap.get(id))).join(', ')}</p>}
+        <button onClick={() => setActivePost(post.id)} className="mt-1 text-sm text-stone-500">Voir les {comments.filter(c => c.post_id === post.id).length} commentaires</button>
+      </div>
+    </article>;
+  };
+
+  return <div className="flex h-full min-h-0 flex-col bg-white text-stone-900">
+    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-stone-200 bg-white px-4 py-3">
+      <div className="font-serif text-2xl italic tracking-tight">Instagram</div>
+      <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label="Notifications"><Heart size={25} />{unread > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-white bg-red-500" />}</button></div>
+    </header>
+
+    {tab === 'home' && <main className="min-h-0 flex-1 overflow-y-auto">
+      {posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <div className="p-10 text-center text-sm text-stone-500">Aucune publication pour le moment.</div>}
+    </main>}
+
+    {tab === 'search' && <main className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex items-center gap-2 rounded-xl bg-stone-100 px-3 py-2"><Search size={18} className="text-stone-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un personnage" className="w-full bg-transparent text-sm outline-none" /></div>
+      {characters.filter(c => c.id !== characterId && fullName(c).toLowerCase().includes(search.toLowerCase())).map(c => <div key={c.id} className="flex items-center gap-3 border-b border-stone-100 py-3"><button onClick={() => goProfile(c.id)}><Avatar character={c} /></button><button onClick={() => goProfile(c.id)} className="min-w-0 flex-1 text-left"><span className="block font-semibold">{fullName(c)}</span><span className="text-xs text-stone-500">Voir le profil</span></button><button onClick={() => void toggleFollow(c.id)} className={\`rounded-lg px-4 py-2 text-sm font-semibold \${follows.some(f => f.follower_character_id === characterId && f.followed_character_id === c.id) ? 'bg-stone-100 text-stone-800' : 'bg-stone-900 text-white'}\`}>{follows.some(f => f.follower_character_id === characterId && f.followed_character_id === c.id) ? 'Abonné(e)' : 'Suivre'}</button></div>)}
+    </main>}
+
+    {tab === 'profile' && <main className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex items-center gap-3 px-4 py-3">{profileId !== characterId && <button onClick={() => { setProfileId(characterId); }}><ArrowLeft /></button>}<span className="font-semibold">{profile ? fullName(profile) : 'Profil'}</span></div>
+      <div className="flex items-center gap-6 px-4 py-4"><Avatar character={profile} size="h-20 w-20" /><div className="grid flex-1 grid-cols-3 text-center text-sm"><div><strong className="block text-lg">{myPosts.length}</strong>publications</div><button onClick={() => setShowFollowers('followers')}><strong className="block text-lg">{followers.length}</strong>abonnés</button><button onClick={() => setShowFollowers('following')}><strong className="block text-lg">{following.length}</strong>abonnements</button></div></div>
+      <div className="px-4 pb-4 text-sm">{profileId === characterId ? <>{editingBio ? <div className="flex gap-2"><textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={150} className="min-w-0 flex-1 rounded-lg border p-2" placeholder="Ajouter une biographie" /><button onClick={() => void saveBio()} className="font-semibold">Enregistrer</button></div> : <div className="flex items-start justify-between"><p className="whitespace-pre-wrap">{myBio || 'Ajouter une biographie…'}</p><button onClick={() => setEditingBio(true)} className="text-xs font-semibold text-stone-500">Modifier</button></div>}</> : <p>{myBio}</p>}</div>
+      {profileId !== characterId && <div className="flex gap-2 px-4 pb-4"><button onClick={() => void toggleFollow(profileId)} className={\`flex-1 rounded-lg py-2 text-sm font-semibold \${isFollowing ? 'bg-stone-100' : 'bg-stone-900 text-white'}\`}>{isFollowing ? 'Abonné(e)' : 'Suivre'}</button><button onClick={() => setShowFollowers('followers')} className="rounded-lg bg-stone-100 px-4 py-2 text-sm">Abonnés</button></div>}
+      <div className="grid grid-cols-3 gap-px border-t border-stone-200">{myPosts.map(post => <button key={post.id} onClick={() => profilePost(post)} className="aspect-square bg-stone-100">{post.media[0]?.media_type === 'video' ? <div className="relative h-full w-full"><video src={post.media[0].media_url} muted playsInline preload="metadata" className="h-full w-full object-cover" /><Video className="absolute right-2 top-2 text-white drop-shadow" size={18} /></div> : <img src={post.media[0]?.media_url || post.image_url} alt="" className="h-full w-full object-cover" />}</button>)}</div>
+    </main>}
+
+    {tab === 'create' && <main className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold">Nouvelle publication</h2><button onClick={() => { setSelectedFiles([]); setCaption(''); setTaggedIds([]); setTab('home'); }}><X /></button></div>
+      <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 p-5 text-center"><ImagePlus size={34} className="mb-2 text-stone-500" /><span className="font-semibold">Choisir des photos ou une vidéo</span><span className="mt-1 text-xs text-stone-500">Plusieurs photos ou une seule vidéo (50 Mo maximum par fichier)</span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); const videos = files.filter(f => mediaType(f) === 'video'); if (videos.length > 1 || (videos.length && files.length > 1)) { notify('Choisis plusieurs photos ou une seule vidéo.'); return; } setSelectedFiles(files); }} /></label>
+      {selectedFiles.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2">{selectedFiles.map((f,i) => <div key={i} className="truncate rounded-lg bg-stone-100 p-2 text-xs">{f.name}</div>)}</div>}
+      <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="Écrire une légende…" className="mt-4 min-h-24 w-full rounded-xl border border-stone-200 p-3 text-sm outline-none focus:border-stone-500" />
+      <div className="mt-4"><p className="mb-2 text-sm font-semibold">Identifier des personnages</p><div className="max-h-44 space-y-2 overflow-y-auto rounded-xl border border-stone-200 p-3">{characters.filter(c => c.id !== characterId).map(c => <label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={taggedIds.includes(c.id)} onChange={e => setTaggedIds(old => e.target.checked ? [...old,c.id] : old.filter(id => id !== c.id))} />{fullName(c)}</label>)}</div></div>
+      <button onClick={() => void createPost()} disabled={!selectedFiles.length || uploading} className="mt-5 w-full rounded-xl bg-stone-900 py-3 font-semibold text-white disabled:opacity-40">{uploading ? 'Publication en cours…' : 'Partager'}</button>
+    </main>}
+
+    <nav className="grid shrink-0 grid-cols-4 border-t border-stone-200 bg-white py-2">
+      <button onClick={() => setTab('home')} className={\`flex flex-col items-center gap-1 py-1 text-xs \${tab === 'home' ? 'text-black' : 'text-stone-400'}\`}><Home size={23} />Accueil</button>
+      <button onClick={() => setTab('search')} className={\`flex flex-col items-center gap-1 py-1 text-xs \${tab === 'search' ? 'text-black' : 'text-stone-400'}\`}><Search size={23} />Recherche</button>
+      <button onClick={() => setTab('create')} className={\`flex flex-col items-center gap-1 py-1 text-xs \${tab === 'create' ? 'text-black' : 'text-stone-400'}\`}><PlusSquare size={23} />Publier</button>
+      <button onClick={() => { setProfileId(characterId); setTab('profile'); }} className={\`flex flex-col items-center gap-1 py-1 text-xs \${tab === 'profile' ? 'text-black' : 'text-stone-400'}\`}><UserRound size={23} />Profil</button>
+    </nav>
+
+    {notice && <div className="fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">{notice}</div>}
+
+    {showNotifications && <div className="fixed inset-0 z-40 flex flex-col bg-white"><div className="flex items-center gap-3 border-b p-4"><button onClick={() => setShowNotifications(false)}><ArrowLeft /></button><h2 className="font-semibold">Notifications</h2></div><div className="min-h-0 flex-1 overflow-y-auto">{notifications.length ? notifications.map(n => <div key={n.id} className={\`flex items-center gap-3 border-b px-4 py-3 \${n.is_read ? 'bg-white' : 'bg-stone-50'}\`}><button onClick={() => n.actor_character_id && goProfile(n.actor_character_id)}><Avatar character={characterMap.get(n.actor_character_id || '')} /></button><button onClick={() => { setShowNotifications(false); if (n.related_id) { const p = posts.find(x => x.id === n.related_id); if (p) setActivePost(p.id); } }} className="min-w-0 flex-1 text-left"><span className="block text-sm font-semibold">{n.title}</span><span className="block text-sm text-stone-600">{n.body}</span><span className="text-xs text-stone-400">{dateLabel(n.created_at)}</span></button><button onClick={() => void deleteNotification(n.id)} className="p-2 text-stone-400"><X size={16} /></button></div>) : <p className="p-8 text-center text-sm text-stone-500">Aucune notification.</p>}</div></div>}
+
+    {activePost && <div className="fixed inset-0 z-40 flex flex-col bg-white"><div className="flex items-center gap-3 border-b p-4"><button onClick={() => setActivePost(null)}><ArrowLeft /></button><h2 className="font-semibold">Publication</h2></div><div className="min-h-0 flex-1 overflow-y-auto">{posts.filter(p => p.id === activePost).map(p => <div key={p.id}><PostCard post={p} /><div className="px-4 pb-6">{orderedComments(p.id).map(renderComment)}{replyTo && <div className="mb-2 flex items-center justify-between rounded-lg bg-stone-100 px-3 py-2 text-xs">Réponse à {fullName(characterMap.get(replyTo.character_id))}<button onClick={() => setReplyTo(null)}><X size={14} /></button></div>}<form onSubmit={e => { e.preventDefault(); void submitComment(p.id); }} className="sticky bottom-0 flex gap-2 border-t bg-white py-3"><input value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Ajouter un commentaire…" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /><button type="submit" disabled={!commentText.trim()} className="font-semibold text-amber-700 disabled:opacity-40">Publier</button></form></div></div>)}</div></div>}
+
+    {showLikes && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setShowLikes(null)}><div className="max-h-[70%] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4" onClick={e => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">J’aime</h3><button onClick={() => setShowLikes(null)}><X /></button></div>{(likes[showLikes] || []).map(id => <button key={id} onClick={() => { setShowLikes(null); goProfile(id); }} className="flex w-full items-center gap-3 py-2"><Avatar character={characterMap.get(id)} /><span className="font-semibold">{fullName(characterMap.get(id))}</span></button>)}</div></div>}
+
+    {showFollowers && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setShowFollowers(null)}><div className="max-h-[70%] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4" onClick={e => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{showFollowers === 'followers' ? 'Abonnés' : 'Abonnements'}</h3><button onClick={() => setShowFollowers(null)}><X /></button></div>{(showFollowers === 'followers' ? followers.map(f => f.follower_character_id) : following.map(f => f.followed_character_id)).map(id => <button key={id} onClick={() => { setShowFollowers(null); goProfile(id); }} className="flex w-full items-center gap-3 py-2"><Avatar character={characterMap.get(id)} /><span className="font-semibold">{fullName(characterMap.get(id))}</span></button>)}</div></div>}
+  </div>;
 }
