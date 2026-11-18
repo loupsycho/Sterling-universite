@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Heart, Home, ImagePlus, MessageCircle,
-  MoreHorizontal, PlusSquare, Search, Trash2, UserRound, Video, X
+  PlusSquare, Search, Trash2, UserRound, Video, X
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
