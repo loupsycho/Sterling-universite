@@ -37,6 +37,7 @@ function Avatar({ character, size = 'h-10 w-10' }: { character?: Character | nul
 export default function InstagramApp({ characterId }: Props) {
   const [me, setMe] = useState<Character | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [postAuthors, setPostAuthors] = useState<Character[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [likes, setLikes] = useState<Record<string, string[]>>({});
   const [comments, setComments] = useState<Comment[]>([]);
@@ -62,8 +63,10 @@ export default function InstagramApp({ characterId }: Props) {
   const [bios, setBios] = useState<Record<string, string>>({});
   const [carousel, setCarousel] = useState<Record<string, number>>({});
   const [showNotifications, setShowNotifications] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<Post | null>(null);
+  const [expandedMedia, setExpandedMedia] = useState<Media | null>(null);
 
-  const characterMap = useMemo(() => new Map(characters.map(c => [c.id, c])), [characters]);
+  const characterMap = useMemo(() => new Map([...postAuthors, ...characters].map(c => [c.id, c])), [characters, postAuthors]);
   const profile = characterMap.get(profileId) || (profileId === characterId ? me : null);
   const myPosts = posts.filter(p => p.character_id === profileId);
   const followers = follows.filter(f => f.followed_character_id === profileId);
@@ -87,6 +90,11 @@ export default function InstagramApp({ characterId }: Props) {
     }
     if (postRows.data) {
       const rows = postRows.data as Omit<Post, 'media' | 'tags'>[];
+      const authorIds = [...new Set(rows.map(p => p.character_id))];
+      if (authorIds.length) {
+        const { data: authors } = await supabase.from('characters').select('id,name,first_name,avatar_url,character_type').in('id', authorIds);
+        if (authors) setPostAuthors(authors as Character[]);
+      } else setPostAuthors([]);
       const ids = rows.map(p => p.id);
       const [mediaRows, tagRows] = ids.length ? await Promise.all([
         supabase.from('instagram_post_media').select('id,post_id,media_url,media_type,thumbnail_url,sort_order').in('post_id', ids).order('sort_order'),
@@ -177,7 +185,7 @@ export default function InstagramApp({ characterId }: Props) {
   };
 
   const deletePost = async (post: Post) => {
-    if (post.character_id !== characterId || !window.confirm('Supprimer définitivement cette publication ?')) return;
+    if (post.character_id !== characterId) return;
     setBusy(true);
     const media = post.media.map(m => m.media_url);
     const paths = media.map(url => {
@@ -185,13 +193,13 @@ export default function InstagramApp({ characterId }: Props) {
       const i = url.indexOf(marker);
       return i >= 0 ? decodeURIComponent(url.slice(i + marker.length).split('?')[0]) : null;
     }).filter(Boolean) as string[];
-    const { error } = await supabase.from('instagram_posts').delete().eq('id', post.id).eq('character_id', characterId);
-    if (error) { setBusy(false); notify("La publication n'a pas pu être supprimée. Vérifie les autorisations."); return; }
+    const { data: deleted, error } = await supabase.from('instagram_posts').delete().eq('id', post.id).eq('character_id', characterId).select('id').maybeSingle();
+    if (error || !deleted) { setBusy(false); notify(error ? "La publication n'a pas pu être supprimée. Vérifie les autorisations." : "La suppression a été refusée : vérifie que ce personnage est bien celui sélectionné."); return; }
     if (paths.length) {
       const { error: storageError } = await supabase.storage.from(BUCKET).remove(paths);
       if (storageError) console.error('Instagram media cleanup:', storageError);
     }
-    setBusy(false); setActivePost(null); await loadAll(); notify('Publication supprimée.');
+    setBusy(false); setActivePost(null); setDeleteCandidate(null); await loadAll(); notify('Publication supprimée.');
   };
 
   const createPost = async () => {
@@ -260,52 +268,52 @@ export default function InstagramApp({ characterId }: Props) {
     const current = carousel[post.id] || 0;
     const item = post.media[current] || post.media[0];
     const mine = post.character_id === characterId;
-    return <article className="border-b border-stone-200 bg-white">
+    return <article className="border-b border-gold-500/15 bg-ink-900">
       <div className="flex items-center gap-3 px-3 py-3">
         <button onClick={() => goProfile(post.character_id)}><Avatar character={owner} /></button>
-        <button onClick={() => goProfile(post.character_id)} className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-stone-900">{fullName(owner)}</span><span className="text-xs text-stone-500">{dateLabel(post.created_at)}</span></button>
-        {mine && <button onClick={() => void deletePost(post)} disabled={busy} className="p-2 text-stone-500"><MoreHorizontal /></button>}
+        <button onClick={() => goProfile(post.character_id)} className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-stone-900">{fullName(owner)}</span><span className="text-xs text-bone-400">{dateLabel(post.created_at)}</span></button>
+        {mine && <button onClick={() => setDeleteCandidate(post)} disabled={busy} aria-label="Options de la publication" className="rounded-full p-2 text-gold-300 hover:bg-white/10"><MoreHorizontal /></button>}
       </div>
       <div className="relative bg-black">
         {item?.media_type === 'video'
           ? <video src={item.media_url} poster={item.thumbnail_url || undefined} controls playsInline preload="metadata" className="max-h-[560px] w-full object-contain" />
-          : <img src={item?.media_url || post.image_url} alt="" className="max-h-[560px] w-full object-contain" />}
+          : <button type="button" onClick={() => item && setExpandedMedia(item)} className="block w-full cursor-zoom-in"><img src={item?.media_url || post.image_url} alt="Ouvrir la photo en grand" onError={e => { e.currentTarget.style.display = 'none'; }} className="mx-auto max-h-[560px] w-full object-contain" /></button>}
         {post.media.length > 1 && <><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.max(0, current - 1) }))} disabled={current === 0} className="absolute left-2 top-1/2 rounded-full bg-white/80 p-2 disabled:opacity-30"><ChevronLeft size={18} /></button><button onClick={() => setCarousel(s => ({ ...s, [post.id]: Math.min(post.media.length - 1, current + 1) }))} disabled={current === post.media.length - 1} className="absolute right-2 top-1/2 rounded-full bg-white/80 p-2 disabled:opacity-30"><ChevronRight size={18} /></button><span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-1 text-xs text-white">{current + 1}/{post.media.length}</span></>}
       </div>
       <div className="px-3 pb-3 pt-2">
         <div className="flex items-center gap-4"><button onClick={() => void togglePostLike(post.id)} aria-label="J'aime"><Heart size={25} color={(likes[post.id] || []).includes(characterId) ? '#e0445e' : '#292524'} fill={(likes[post.id] || []).includes(characterId) ? '#e0445e' : 'none'} /></button><button onClick={() => setActivePost(post.id)} aria-label="Commentaires"><MessageCircle size={24} /></button></div>
-        <button onClick={() => setShowLikes(post.id)} className="mt-2 text-sm font-semibold">{(likes[post.id] || []).length} J’aime</button>
+        <button onClick={() => setShowLikes(post.id)} className="mt-2 text-sm font-semibold text-gold-300">{(likes[post.id] || []).length} J’aime</button>
         {post.caption && <p className="mt-1 text-sm text-stone-800"><button onClick={() => goProfile(post.character_id)} className="mr-1 font-semibold">{fullName(owner)}</button>{post.caption}</p>}
         {post.tags.length > 0 && <p className="mt-1 text-xs text-stone-500">Avec {post.tags.map(id => fullName(characterMap.get(id))).join(', ')}</p>}
-        <button onClick={() => setActivePost(post.id)} className="mt-1 text-sm text-stone-500">Voir les {comments.filter(c => c.post_id === post.id).length} commentaires</button>
+        <button onClick={() => setActivePost(post.id)} className="mt-1 text-sm text-bone-400">Voir les {comments.filter(c => c.post_id === post.id).length} commentaires</button>
       </div>
     </article>;
   };
 
   return <div className="flex h-full min-h-0 flex-col bg-white text-stone-900">
-    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-stone-200 bg-white px-4 py-3">
-      <div className="font-serif text-2xl italic tracking-tight">Instagram</div>
+    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gold-500/20 bg-ink-900/95 px-4 py-4 backdrop-blur">
+      <div className="font-serif text-2xl italic tracking-tight text-gold-300">Instagram <span className="ml-2 font-sans text-[10px] not-italic uppercase tracking-[0.3em] text-bone-500">Sterling</span></div>
       <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label="Notifications"><Heart size={25} />{unread > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-white bg-red-500" />}</button></div>
     </header>
 
-    {tab === 'home' && <main className="min-h-0 flex-1 overflow-y-auto">
+    {tab === 'home' && <main className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-ink-950 p-3">
       {posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <div className="p-10 text-center text-sm text-stone-500">Aucune publication pour le moment.</div>}
     </main>}
 
-    {tab === 'search' && <main className="min-h-0 flex-1 overflow-y-auto p-4">
-      <div className="mb-4 flex items-center gap-2 rounded-xl bg-stone-100 px-3 py-2"><Search size={18} className="text-stone-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un personnage" className="w-full bg-transparent text-sm outline-none" /></div>
+    {tab === 'search' && <main className="min-h-0 flex-1 overflow-y-auto bg-ink-950 p-4">
+      <div className="mb-4 flex items-center gap-2 rounded-xl bg-stone-100 px-3 py-2"><Search size={18} className="text-stone-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un personnage" className="w-full bg-transparent text-sm text-bone-100 outline-none placeholder:text-bone-500" /></div>
       {characters.filter(c => c.id !== characterId && fullName(c).toLowerCase().includes(search.toLowerCase())).map(c => <div key={c.id} className="flex items-center gap-3 border-b border-stone-100 py-3"><button onClick={() => goProfile(c.id)}><Avatar character={c} /></button><button onClick={() => goProfile(c.id)} className="min-w-0 flex-1 text-left"><span className="block font-semibold">{fullName(c)}</span><span className="text-xs text-stone-500">Voir le profil</span></button><button onClick={() => void toggleFollow(c.id)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${follows.some(f => f.follower_character_id === characterId && f.followed_character_id === c.id) ? 'bg-stone-100 text-stone-800' : 'bg-stone-900 text-white'}`}>{follows.some(f => f.follower_character_id === characterId && f.followed_character_id === c.id) ? 'Abonné(e)' : 'Suivre'}</button></div>)}
     </main>}
 
-    {tab === 'profile' && <main className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex items-center gap-3 px-4 py-3">{profileId !== characterId && <button onClick={() => { setProfileId(characterId); }}><ArrowLeft /></button>}<span className="font-semibold">{profile ? fullName(profile) : 'Profil'}</span></div>
-      <div className="flex items-center gap-6 px-4 py-4"><Avatar character={profile} size="h-20 w-20" /><div className="grid flex-1 grid-cols-3 text-center text-sm"><div><strong className="block text-lg">{myPosts.length}</strong>publications</div><button onClick={() => setShowFollowers('followers')}><strong className="block text-lg">{followers.length}</strong>abonnés</button><button onClick={() => setShowFollowers('following')}><strong className="block text-lg">{following.length}</strong>abonnements</button></div></div>
-      <div className="px-4 pb-4 text-sm">{profileId === characterId ? <>{editingBio ? <div className="flex gap-2"><textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={150} className="min-w-0 flex-1 rounded-lg border p-2" placeholder="Ajouter une biographie" /><button onClick={() => void saveBio()} className="font-semibold">Enregistrer</button></div> : <div className="flex items-start justify-between"><p className="whitespace-pre-wrap">{bios[characterId] || 'Ajouter une biographie…'}</p><button onClick={() => setEditingBio(true)} className="text-xs font-semibold text-stone-500">Modifier</button></div>}</> : <p>{bios[profileId] || ''}</p>}</div>
+    {tab === 'profile' && <main className="min-h-0 flex-1 overflow-y-auto bg-ink-950">
+      <div className="flex items-center gap-3 border-b border-gold-500/20 px-4 py-3">{profileId !== characterId && <button onClick={() => { setProfileId(characterId); }}><ArrowLeft /></button>}<span className="font-semibold">{profile ? fullName(profile) : 'Profil'}</span></div>
+      <div className="flex items-center gap-6 px-4 py-4 text-bone-100"><Avatar character={profile} size="h-20 w-20" /><div className="grid flex-1 grid-cols-3 text-center text-sm"><div><strong className="block text-lg">{myPosts.length}</strong>publications</div><button onClick={() => setShowFollowers('followers')}><strong className="block text-lg">{followers.length}</strong>abonnés</button><button onClick={() => setShowFollowers('following')}><strong className="block text-lg">{following.length}</strong>abonnements</button></div></div>
+      <div className="px-4 pb-4 text-sm text-bone-200">{profileId === characterId ? <>{editingBio ? <div className="flex gap-2"><textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={150} className="min-w-0 flex-1 rounded-lg border p-2" placeholder="Ajouter une biographie" /><button onClick={() => void saveBio()} className="font-semibold">Enregistrer</button></div> : <div className="flex items-start justify-between"><p className="whitespace-pre-wrap">{bios[characterId] || 'Ajouter une biographie…'}</p><button onClick={() => setEditingBio(true)} className="text-xs font-semibold text-stone-500">Modifier</button></div>}</> : <p>{bios[profileId] || ''}</p>}</div>
       {profileId !== characterId && <div className="flex gap-2 px-4 pb-4"><button onClick={() => void toggleFollow(profileId)} className={`flex-1 rounded-lg py-2 text-sm font-semibold ${isFollowing ? 'bg-stone-100' : 'bg-stone-900 text-white'}`}>{isFollowing ? 'Abonné(e)' : 'Suivre'}</button><button onClick={() => setShowFollowers('followers')} className="rounded-lg bg-stone-100 px-4 py-2 text-sm">Abonnés</button></div>}
-      <div className="grid grid-cols-3 gap-px border-t border-stone-200">{myPosts.map(post => <button key={post.id} onClick={() => profilePost(post)} className="aspect-square bg-stone-100">{post.media[0]?.media_type === 'video' ? <div className="relative h-full w-full"><video src={post.media[0].media_url} muted playsInline preload="metadata" className="h-full w-full object-cover" /><Video className="absolute right-2 top-2 text-white drop-shadow" size={18} /></div> : <img src={post.media[0]?.media_url || post.image_url} alt="" className="h-full w-full object-cover" />}</button>)}</div>
+      <div className="grid grid-cols-3 gap-px border-t border-gold-500/20">{myPosts.map(post => <button key={post.id} onClick={() => profilePost(post)} className="aspect-square bg-stone-100">{post.media[0]?.media_type === 'video' ? <div className="relative h-full w-full"><video src={post.media[0].media_url} muted playsInline preload="metadata" className="h-full w-full object-cover" /><Video className="absolute right-2 top-2 text-white drop-shadow" size={18} /></div> : <img src={post.media[0]?.media_url || post.image_url} alt="" className="h-full w-full object-cover" />}</button>)}</div>
     </main>}
 
-    {tab === 'create' && <main className="min-h-0 flex-1 overflow-y-auto p-4">
+    {tab === 'create' && <main className="min-h-0 flex-1 overflow-y-auto bg-ink-950 p-4">
       <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold">Nouvelle publication</h2><button onClick={() => { setSelectedFiles([]); setCaption(''); setTaggedIds([]); setTab('home'); }}><X /></button></div>
       <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 p-5 text-center"><ImagePlus size={34} className="mb-2 text-stone-500" /><span className="font-semibold">Choisir des photos ou une vidéo</span><span className="mt-1 text-xs text-stone-500">Plusieurs photos ou une seule vidéo (50 Mo maximum par fichier)</span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); const videos = files.filter(f => mediaType(f) === 'video'); if (videos.length > 1 || (videos.length && files.length > 1)) { notify('Choisis plusieurs photos ou une seule vidéo.'); return; } setSelectedFiles(files); }} /></label>
       {selectedFiles.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2">{selectedFiles.map((f,i) => <div key={i} className="truncate rounded-lg bg-stone-100 p-2 text-xs">{f.name}</div>)}</div>}
@@ -314,7 +322,7 @@ export default function InstagramApp({ characterId }: Props) {
       <button onClick={() => void createPost()} disabled={!selectedFiles.length || uploading} className="mt-5 w-full rounded-xl bg-stone-900 py-3 font-semibold text-white disabled:opacity-40">{uploading ? 'Publication en cours…' : 'Partager'}</button>
     </main>}
 
-    <nav className="grid shrink-0 grid-cols-4 border-t border-stone-200 bg-white py-2">
+    <nav className="grid shrink-0 grid-cols-4 border-t border-gold-500/20 bg-ink-900 py-3">
       <button onClick={() => setTab('home')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'home' ? 'text-black' : 'text-stone-400'}`}><Home size={23} />Accueil</button>
       <button onClick={() => setTab('search')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'search' ? 'text-black' : 'text-stone-400'}`}><Search size={23} />Recherche</button>
       <button onClick={() => setTab('create')} className={`flex flex-col items-center gap-1 py-1 text-xs ${tab === 'create' ? 'text-black' : 'text-stone-400'}`}><PlusSquare size={23} />Publier</button>
