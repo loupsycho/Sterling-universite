@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Bell, Camera, ChevronDown, ChevronLeft, ChevronRight, Heart,
-  Home, ImagePlus, MessageCircle, MoreHorizontal, PlusSquare, Search,
-  Send, Trash2, UserRound, UserRoundPlus, Video, X
+  ArrowLeft, ChevronLeft, ChevronRight, Heart, Home, ImagePlus, MessageCircle,
+  MoreHorizontal, PlusSquare, Search, Trash2, UserRound, Video, X
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
@@ -60,7 +59,7 @@ export default function InstagramApp({ characterId }: Props) {
   const [showFollowers, setShowFollowers] = useState<'followers' | 'following' | null>(null);
   const [editingBio, setEditingBio] = useState(false);
   const [bio, setBio] = useState('');
-  const [myBio, setMyBio] = useState('');
+  const [bios, setBios] = useState<Record<string, string>>({});
   const [carousel, setCarousel] = useState<Record<string, number>>({});
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -74,13 +73,13 @@ export default function InstagramApp({ characterId }: Props) {
 
   const loadAll = useCallback(async () => {
     const [chars, postRows, likeRows, commentRows, followRows, notifRows, profileRow] = await Promise.all([
-      supabase.from('characters').select('id,name,first_name,avatar_url,character_type').eq('status', 'accepted').order('name'),
+      supabase.from('characters').select('id,name,first_name,avatar_url,character_type').eq('status', 'approved').order('name'),
       supabase.from('instagram_posts').select('id,character_id,image_url,caption,created_at').order('created_at', { ascending: false }),
       supabase.from('instagram_likes').select('post_id,character_id'),
       supabase.from('instagram_comments').select('id,post_id,character_id,content,created_at,parent_comment_id').order('created_at'),
       supabase.from('instagram_follows').select('follower_character_id,followed_character_id'),
       supabase.from('notifications').select('id,notification_type,title,body,related_id,actor_character_id,is_read,created_at').eq('recipient_character_id', characterId).eq('source_app', 'instagram').order('created_at', { ascending: false }).limit(100),
-      supabase.from('instagram_profiles').select('bio').eq('character_id', characterId).maybeSingle()
+      supabase.from('instagram_profiles').select('character_id,bio')
     ]);
     if (chars.data) {
       setCharacters(chars.data as Character[]);
@@ -106,7 +105,7 @@ export default function InstagramApp({ characterId }: Props) {
     if (commentRows.data) setComments(commentRows.data as Comment[]);
     if (followRows.data) setFollows(followRows.data as { follower_character_id: string; followed_character_id: string }[]);
     if (notifRows.data) setNotifications(notifRows.data as Notification[]);
-    if (profileRow.data) { setMyBio(profileRow.data.bio || ''); setBio(profileRow.data.bio || ''); }
+    if (profileRow.data) { const map: Record<string, string> = {}; profileRow.data.forEach((row: { character_id: string; bio: string | null }) => { map[row.character_id] = row.bio || ''; }); setBios(map); setBio(map[characterId] || ''); }
   }, [characterId]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
@@ -225,7 +224,7 @@ export default function InstagramApp({ characterId }: Props) {
   const saveBio = async () => {
     const { error } = await supabase.from('instagram_profiles').upsert({ character_id: characterId, bio: bio.trim(), updated_at: new Date().toISOString() }, { onConflict: 'character_id' });
     if (error) { notify("Impossible d'enregistrer la biographie."); return; }
-    setMyBio(bio.trim()); setEditingBio(false);
+    setBios(old => ({ ...old, [characterId]: bio.trim() })); setEditingBio(false);
   };
 
   const openNotifications = async () => {
@@ -305,7 +304,7 @@ export default function InstagramApp({ characterId }: Props) {
     {tab === 'profile' && <main className="min-h-0 flex-1 overflow-y-auto">
       <div className="flex items-center gap-3 px-4 py-3">{profileId !== characterId && <button onClick={() => { setProfileId(characterId); }}><ArrowLeft /></button>}<span className="font-semibold">{profile ? fullName(profile) : 'Profil'}</span></div>
       <div className="flex items-center gap-6 px-4 py-4"><Avatar character={profile} size="h-20 w-20" /><div className="grid flex-1 grid-cols-3 text-center text-sm"><div><strong className="block text-lg">{myPosts.length}</strong>publications</div><button onClick={() => setShowFollowers('followers')}><strong className="block text-lg">{followers.length}</strong>abonnés</button><button onClick={() => setShowFollowers('following')}><strong className="block text-lg">{following.length}</strong>abonnements</button></div></div>
-      <div className="px-4 pb-4 text-sm">{profileId === characterId ? <>{editingBio ? <div className="flex gap-2"><textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={150} className="min-w-0 flex-1 rounded-lg border p-2" placeholder="Ajouter une biographie" /><button onClick={() => void saveBio()} className="font-semibold">Enregistrer</button></div> : <div className="flex items-start justify-between"><p className="whitespace-pre-wrap">{myBio || 'Ajouter une biographie…'}</p><button onClick={() => setEditingBio(true)} className="text-xs font-semibold text-stone-500">Modifier</button></div>}</> : <p>{myBio}</p>}</div>
+      <div className="px-4 pb-4 text-sm">{profileId === characterId ? <>{editingBio ? <div className="flex gap-2"><textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={150} className="min-w-0 flex-1 rounded-lg border p-2" placeholder="Ajouter une biographie" /><button onClick={() => void saveBio()} className="font-semibold">Enregistrer</button></div> : <div className="flex items-start justify-between"><p className="whitespace-pre-wrap">{bios[characterId] || 'Ajouter une biographie…'}</p><button onClick={() => setEditingBio(true)} className="text-xs font-semibold text-stone-500">Modifier</button></div>}</> : <p>{bios[profileId] || ''}</p>}</div>
       {profileId !== characterId && <div className="flex gap-2 px-4 pb-4"><button onClick={() => void toggleFollow(profileId)} className={\`flex-1 rounded-lg py-2 text-sm font-semibold \${isFollowing ? 'bg-stone-100' : 'bg-stone-900 text-white'}\`}>{isFollowing ? 'Abonné(e)' : 'Suivre'}</button><button onClick={() => setShowFollowers('followers')} className="rounded-lg bg-stone-100 px-4 py-2 text-sm">Abonnés</button></div>}
       <div className="grid grid-cols-3 gap-px border-t border-stone-200">{myPosts.map(post => <button key={post.id} onClick={() => profilePost(post)} className="aspect-square bg-stone-100">{post.media[0]?.media_type === 'video' ? <div className="relative h-full w-full"><video src={post.media[0].media_url} muted playsInline preload="metadata" className="h-full w-full object-cover" /><Video className="absolute right-2 top-2 text-white drop-shadow" size={18} /></div> : <img src={post.media[0]?.media_url || post.image_url} alt="" className="h-full w-full object-cover" />}</button>)}</div>
     </main>}
