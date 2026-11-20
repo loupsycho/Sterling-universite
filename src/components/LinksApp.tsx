@@ -15,6 +15,7 @@ type Character = {
   name: string;
   avatar_url?: string | null;
   character_type?: string | null;
+  sexual_orientation?: string | null;
 };
 
 type Props = {
@@ -385,7 +386,7 @@ export default function LinksApp({ characterId }: Props) {
       ] = await Promise.all([
         supabase
           .from("characters")
-          .select("id, first_name, name, avatar_url, character_type"),
+          .select("id, first_name, name, avatar_url, character_type, sexual_orientation"),
 
         supabase
           .from("link_announcements")
@@ -1037,6 +1038,11 @@ export default function LinksApp({ characterId }: Props) {
                         {characterStatus(character)}
                       </div>
                     )}
+                    {character?.sexual_orientation && (
+                      <div style={{ color: "#d4af62", fontSize: 11, marginTop: 4 }}>
+                        Orientation sexuelle : {character.sexual_orientation}
+                      </div>
+                    )}
 
                     <div style={{ color: "#8f887b", fontSize: 11 }}>
                       {new Date(
@@ -1132,6 +1138,19 @@ export default function LinksApp({ characterId }: Props) {
 
                     <div
                       style={{
+                        border: `1px solid ${BORDER}`,
+                        borderRadius: 9,
+                        padding: 11,
+                        marginBottom: 12,
+                        color: "#d4af62",
+                        fontSize: 13,
+                      }}
+                    >
+                      Orientation sexuelle : {character?.sexual_orientation || "Non renseignée"}
+                    </div>
+
+                    <div
+                      style={{
                         color: "#aaa18f",
                         fontSize: 13,
                         marginBottom: 12,
@@ -1221,6 +1240,12 @@ export default function LinksApp({ characterId }: Props) {
                     <div style={{ color: GOLD, fontWeight: 700 }}>
                       {characterName(sender)}
                     </div>
+
+                    {sender?.sexual_orientation && (
+                      <div style={{ color: "#d4af62", fontSize: 11, marginTop: 4 }}>
+                        Orientation sexuelle : {sender.sexual_orientation}
+                      </div>
+                    )}
 
                     <div style={{ color: "#999080", fontSize: 11 }}>
                       {new Date(request.created_at).toLocaleDateString("fr-FR")}
