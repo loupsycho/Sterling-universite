@@ -1241,6 +1241,12 @@ export default function LinksApp({ characterId }: Props) {
                       {characterName(sender)}
                     </div>
 
+                    {sender?.sexual_orientation && (
+                      <div style={{ color: "#d4af62", fontSize: 11, marginTop: 4 }}>
+                        Orientation sexuelle : {sender.sexual_orientation}
+                      </div>
+                    )}
+
                     <div style={{ color: "#999080", fontSize: 11 }}>
                       {new Date(request.created_at).toLocaleDateString("fr-FR")}
                     </div>
