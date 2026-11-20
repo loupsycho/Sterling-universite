@@ -15,6 +15,7 @@ type Character = {
   housing: string | null;
   avatar_url: string | null;
   created_at: string;
+  sexual_orientation: string | null;
 };
 
 type ConfirmedLink = {
@@ -57,7 +58,7 @@ export default function ContactsApp({
       const { data, error } = await supabase
         .from('characters')
         .select(
-          'id, name, first_name, age, character_type, course_position, study_program, staff_job, housing, avatar_url, created_at'
+          'id, name, first_name, age, character_type, course_position, study_program, staff_job, housing, avatar_url, created_at, sexual_orientation'
         )
         .neq('id', characterId)
         .order('created_at', { ascending: false });
@@ -254,6 +255,11 @@ export default function ContactsApp({
                     <p className="mt-2 text-sm">
                       {getCourseOrJob(selectedCharacter) || 'Non renseigné'}
                     </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-ink-950/70 p-4">
+                    <p className="text-xs uppercase tracking-wider text-bone-400">Orientation sexuelle</p>
+                    <p className="mt-2 text-sm">{selectedCharacter.sexual_orientation || 'Non renseignée'}</p>
                   </div>
 
                   <div className="rounded-xl border border-white/10 bg-ink-950/70 p-4">
