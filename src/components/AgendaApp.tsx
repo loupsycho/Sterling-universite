@@ -43,6 +43,14 @@ type ProposalResponse = {
   response: 'accepted' | 'refused';
 };
 
+type ProposalParticipant = {
+  proposal_id: string;
+  character_id: string;
+  first_name: string | null;
+  last_name: string;
+  discord_username: string;
+};
+
 type ScopeOption = {
   type: 'house' | 'activity' | 'course';
   name: string;
@@ -184,6 +192,7 @@ export default function AgendaApp({ characterId }: Props) {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [responses, setResponses] = useState<ProposalResponse[]>([]);
+  const [participants, setParticipants] = useState<ProposalParticipant[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [today, setToday] = useState(() => new Date());
@@ -362,7 +371,21 @@ export default function AgendaApp({ characterId }: Props) {
           proposer: proposerNames[item.character_id] || 'Personnage inconnu',
         }))
       );
+      const proposalIds = rawProposals.map(item => item.id);
+      let participantRows: ProposalParticipant[] = [];
+
+      if (proposalIds.length > 0) {
+        const { data: participantData, error: participantError } =
+          await supabase.rpc('get_agenda_proposal_participants', {
+            p_proposal_ids: proposalIds,
+          });
+
+        if (participantError) throw participantError;
+        participantRows = (participantData || []) as ProposalParticipant[];
+      }
+
       setResponses((responseData || []) as ProposalResponse[]);
+      setParticipants(participantRows);
     } catch (err) {
       console.error('Erreur de chargement de l’agenda :', err);
       setError(
@@ -377,6 +400,25 @@ export default function AgendaApp({ characterId }: Props) {
 
   useEffect(() => {
     void loadAgenda();
+
+    const channel = supabase
+      .channel(`agenda-proposal-responses:${characterId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'agenda_proposal_responses',
+        },
+        () => {
+          void loadAgenda();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [characterId]);
 
   useEffect(() => {
@@ -1029,6 +1071,36 @@ export default function AgendaApp({ characterId }: Props) {
                         {proposal.description}
                       </p>
                     )}
+
+                    <div className="mt-4 border-t border-white/10 pt-3">
+                      <p className="text-sm font-semibold text-gold-300">
+                        👥 Participants ({participants.filter(item => item.proposal_id === proposal.id).length})
+                      </p>
+
+                      {participants.some(item => item.proposal_id === proposal.id) ? (
+                        <ul className="mt-2 space-y-2">
+                          {participants
+                            .filter(item => item.proposal_id === proposal.id)
+                            .map(participant => (
+                              <li
+                                key={participant.character_id}
+                                className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                              >
+                                <span className="text-bone-100">
+                                  {participant.first_name || ''} {participant.last_name}
+                                </span>
+                                <span className="text-xs text-bone-400">
+                                  ({participant.discord_username})
+                                </span>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-xs text-bone-400">
+                          Aucun personnage n’a encore accepté cette activité.
+                        </p>
+                      )}
+                    </div>
 
                     {isOwnProposal ? (
                       <p className="mt-3 text-sm text-gold-400">
