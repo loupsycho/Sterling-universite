@@ -18,6 +18,7 @@ type Character = {
   course_position: string | null;
   housing: string | null;
   avatar_url: string | null;
+  sexual_orientation: string | null;
 };
 
 type Props = {
@@ -140,6 +141,10 @@ export default function PlayerSpace({ playerId }: Props) {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
+  const [orientationChoice, setOrientationChoice] = useState('');
+  const [orientationOther, setOrientationOther] = useState('');
+  const [orientationSaving, setOrientationSaving] = useState(false);
+  const [orientationError, setOrientationError] = useState('');
 
   const [notificationCounts, setNotificationCounts] =
     useState<NotificationCounts>(EMPTY_NOTIFICATION_COUNTS);
@@ -272,7 +277,7 @@ export default function PlayerSpace({ playerId }: Props) {
       const { data, error } = await supabase
         .from('characters')
         .select(
-          'id, name, first_name, age, character_type, course_position, housing, avatar_url'
+          'id, name, first_name, age, character_type, course_position, housing, avatar_url, sexual_orientation'
         )
         .eq('player_id', playerId)
         .order('name', { ascending: true });
@@ -798,6 +803,45 @@ export default function PlayerSpace({ playerId }: Props) {
     setAvatarMessage('');
   }
 
+  async function saveSexualOrientation() {
+    if (!selectedCharacter || !orientationChoice || orientationSaving) return;
+
+    const orientation = orientationChoice === 'Autre'
+      ? `Autre : ${orientationOther.trim()}`
+      : orientationChoice;
+
+    if (orientationChoice === 'Autre' && !orientationOther.trim()) {
+      setOrientationError('Précise ton orientation sexuelle.');
+      return;
+    }
+
+    setOrientationSaving(true);
+    setOrientationError('');
+
+    const { data, error } = await supabase
+      .from('characters')
+      .update({ sexual_orientation: orientation })
+      .eq('id', selectedCharacter.id)
+      .eq('player_id', playerId)
+      .is('sexual_orientation', null)
+      .select('sexual_orientation')
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error(error);
+      setOrientationError(error?.message || 'Cette réponse n’a pas pu être enregistrée. Actualise la page et réessaie.');
+      setOrientationSaving(false);
+      return;
+    }
+
+    setCharacters((current) => current.map((character) =>
+      character.id === selectedCharacter.id
+        ? { ...character, sexual_orientation: data.sexual_orientation }
+        : character
+    ));
+    setOrientationSaving(false);
+  }
+
   // Chargement
   if (loading) {
     return (
@@ -932,6 +976,55 @@ export default function PlayerSpace({ playerId }: Props) {
               );
             })}
           </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!selectedCharacter.sexual_orientation) {
+    const orientationOptions = ['Hétérosexuel(le)', 'Bisexuel(le)', 'Homosexuel(le)', 'Autre'];
+
+    return (
+      <section className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/90 px-4 py-8">
+        <div className="my-auto w-full max-w-lg rounded-3xl border border-gold-500/30 bg-ink-900 p-6 shadow-2xl sm:p-8">
+          <p className="text-center text-xs uppercase tracking-[0.3em] text-gold-300">Sterling Campus</p>
+          <h1 className="mt-4 text-center text-2xl font-semibold text-bone-100">Avant de continuer…</h1>
+          <p className="mt-3 text-center text-sm text-bone-300">Quelle est votre orientation sexuelle ?</p>
+          <p className="mt-2 text-center text-xs text-bone-500">Cette information sera enregistrée pour ce personnage et ne pourra plus être modifiée.</p>
+
+          <div className="mt-7 grid gap-3">
+            {orientationOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => { setOrientationChoice(option); setOrientationError(''); }}
+                className={`rounded-xl border px-4 py-3 text-left text-sm transition ${orientationChoice === option ? 'border-gold-400 bg-gold-500/15 text-gold-200' : 'border-white/10 bg-ink-950 text-bone-200 hover:border-gold-500/40'}`}
+              >
+                <span className="mr-3">{orientationChoice === option ? '◉' : '○'}</span>{option === 'Autre' ? 'Autre' : option}
+              </button>
+            ))}
+          </div>
+
+          {orientationChoice === 'Autre' && (
+            <input
+              value={orientationOther}
+              onChange={(event) => setOrientationOther(event.target.value)}
+              placeholder="Précisez votre orientation…"
+              maxLength={80}
+              className="mt-4 w-full rounded-xl border border-gold-500/30 bg-ink-950 px-4 py-3 text-sm text-bone-100 outline-none focus:border-gold-400"
+            />
+          )}
+
+          {orientationError && <p className="mt-4 text-sm text-red-300">{orientationError}</p>}
+
+          <button
+            type="button"
+            onClick={saveSexualOrientation}
+            disabled={!orientationChoice || orientationSaving || (orientationChoice === 'Autre' && !orientationOther.trim())}
+            className="mt-7 w-full rounded-xl bg-gold-500 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-gold-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {orientationSaving ? 'Enregistrement…' : 'Valider et continuer'}
+          </button>
         </div>
       </section>
     );
