@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clipboard, Loader2, RefreshCw, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 type Player = { id: string; discord_username: string | null };
 type Character = { id: string; player_id: string; name: string; first_name: string | null };
-type Course = { id: string; subject: string; scheduled_at: string };
+type Course = { id: string; subject: string; scheduled_at: string; attendance_submitted: boolean };
 type Attendance = { id: string; course_id: string; character_id: string; attendance_status: string | null; had_notified_absence: boolean };
 type Appointment = { id: string; reason: string | null; created_at: string };
 type Proposal = { appointment_id: string; proposed_at: string; status: string };
@@ -29,14 +29,14 @@ export default function SterlingPortalAdmin() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [playersResult, charactersResult, coursesResult, attendanceResult, appointmentsResult, proposalsResult, reportsResult, settingsResult] = await Promise.all([
         supabase.from('players').select('id,discord_username').order('discord_username'),
         supabase.from('characters').select('id,player_id,name,first_name').order('name'),
-        supabase.from('portal_courses').select('id,subject,scheduled_at'),
+        supabase.from('portal_courses').select('id,subject,scheduled_at,attendance_submitted'),
         supabase.from('portal_course_students').select('id,course_id,character_id,attendance_status,had_notified_absence'),
         supabase.from('portal_appointments').select('id,reason,created_at'),
         supabase.from('portal_appointment_proposals').select('appointment_id,proposed_at,status'),
@@ -108,7 +108,7 @@ export default function SterlingPortalAdmin() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadData();
@@ -122,7 +122,7 @@ export default function SterlingPortalAdmin() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [loadData]);
 
   async function saveThresholds() {
     setSaving(true); setError(''); setNotice('');
@@ -205,7 +205,10 @@ export default function SterlingPortalAdmin() {
                   <div className="space-y-4">
                     {summary.characters.map(item => (
                       <section key={item.character.id} className="rounded-xl border border-white/10 bg-ink-950 p-3">
-                        <h4 className="font-semibold text-gold-200">{characterLabel(item.character)}</h4>
+                        <h4 className="font-semibold text-gold-200">{characterLabel(item.character)} ({summary.player.discord_username || 'Joueur inconnu'})</h4>
+                        <p className="mt-1 text-xs text-bone-400">
+                          Absences : {item.events.filter(event => event.kind !== 'late').length} · Retards : {item.events.filter(event => event.kind === 'late').length}
+                        </p>
                         {item.events.length === 0 ? <p className="mt-2 text-xs text-bone-500">Aucune absence ni aucun retard.</p> : (
                           <ul className="mt-3 space-y-2">
                             {item.events.map((event, index) => (
