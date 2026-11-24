@@ -8,6 +8,7 @@ import InstagramApp from '@/components/InstagramApp';
 import SecretScoop from '@/components/SecretScoop';
 import AgendaApp from '@/components/AgendaApp';
 import LinksApp from '@/components/LinksApp';
+import SterlingPortal from '@/components/SterlingPortal';
 
 type Character = {
   id: string;
@@ -32,14 +33,16 @@ type PhoneApp =
   | 'instagram'
   | 'scoop'
   | 'agenda'
-  | 'links';
+  | 'links'
+  | 'portal';
 
 type NotificationApp =
   | 'messages'
   | 'instagram'
   | 'scoop'
   | 'agenda'
-  | 'links';
+  | 'links'
+  | 'sterling_portal';
 
 type NotificationCounts = Record<NotificationApp, number>;
 
@@ -60,6 +63,7 @@ const EMPTY_NOTIFICATION_COUNTS: NotificationCounts = {
   scoop: 0,
   agenda: 0,
   links: 0,
+  sterling_portal: 0,
 };
 
 function getSavedSession(playerId: string): SavedSession {
@@ -86,7 +90,8 @@ function getSavedSession(playerId: string): SavedSession {
         parsed.activeApp === 'instagram' ||
         parsed.activeApp === 'scoop' ||
         parsed.activeApp === 'agenda' ||
-        parsed.activeApp === 'links'
+        parsed.activeApp === 'links' ||
+        parsed.activeApp === 'portal'
           ? parsed.activeApp
           : 'home',
       messageContactId: parsed.messageContactId || null,
@@ -452,6 +457,7 @@ export default function PlayerSpace({ playerId }: Props) {
         scoop: 0,
         agenda: 0,
         links: 0,
+        sterling_portal: 0,
       };
 
       (data || []).forEach((notification) => {
@@ -498,7 +504,7 @@ export default function PlayerSpace({ playerId }: Props) {
 
   // Ouvre une application et marque ses notifications comme lues
   async function openNotifiedApp(app: NotificationApp) {
-    if (selectedCharacter) {
+    if (selectedCharacter && app !== 'sterling_portal') {
       const { error } = await supabase
         .from('notifications')
         .update({
@@ -522,7 +528,7 @@ export default function PlayerSpace({ playerId }: Props) {
       }
     }
 
-    setActiveApp(app);
+    setActiveApp(app === 'sterling_portal' ? 'portal' : app);
   }
 
   // Gestion de la photo de profil
@@ -1248,6 +1254,22 @@ export default function PlayerSpace({ playerId }: Props) {
 
                   <button
                     type="button"
+                    onClick={() => void openNotifiedApp('sterling_portal')}
+                    className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
+                  >
+                    {notificationCounts.sterling_portal > 0 && (
+                      <span className="absolute right-3 top-3 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                        {notificationCounts.sterling_portal}
+                      </span>
+                    )}
+                    <span className="text-3xl">🎓</span>
+                    <p className="mt-3 text-sm font-medium text-bone-100">
+                      Sterling Portal
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => void openNotifiedApp('links')}
                     className="relative rounded-2xl border border-gold-500/30 bg-ink-950 p-5 transition hover:bg-gold-500/10"
                   >
@@ -1305,6 +1327,13 @@ export default function PlayerSpace({ playerId }: Props) {
 
         {activeApp === 'links' && (
           <LinksApp
+            key={selectedCharacter.id}
+            characterId={selectedCharacter.id}
+          />
+        )}
+
+        {activeApp === 'portal' && (
+          <SterlingPortal
             key={selectedCharacter.id}
             characterId={selectedCharacter.id}
           />

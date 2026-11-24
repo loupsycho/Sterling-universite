@@ -60,6 +60,16 @@ type Props = {
   characterId: string;
 };
 
+type PortalAgendaItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  location: string | null;
+  kind: 'portal_course' | 'portal_appointment';
+};
+
 type AgendaItem = {
   id: string;
   title: string;
@@ -67,7 +77,7 @@ type AgendaItem = {
   starts_at: string;
   ends_at: string | null;
   location: string | null;
-  kind: 'event' | 'proposal';
+  kind: 'event' | 'proposal' | 'portal_course' | 'portal_appointment';
   event?: AgendaEvent;
   proposal?: Proposal;
 };
@@ -193,6 +203,7 @@ export default function AgendaApp({ characterId }: Props) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [responses, setResponses] = useState<ProposalResponse[]>([]);
   const [participants, setParticipants] = useState<ProposalParticipant[]>([]);
+  const [portalItems, setPortalItems] = useState<PortalAgendaItem[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [today, setToday] = useState(() => new Date());
@@ -260,12 +271,12 @@ export default function AgendaApp({ characterId }: Props) {
       proposal,
     }));
 
-    return [...normalEvents, ...personalProposalItems].sort(
+    return [...normalEvents, ...personalProposalItems, ...portalItems].sort(
       (a, b) =>
         (parseDate(a.starts_at)?.getTime() || 0) -
         (parseDate(b.starts_at)?.getTime() || 0)
     );
-  }, [events, personalProposals]);
+  }, [events, personalProposals, portalItems]);
 
   const selectedEvents = useMemo(
     () =>
@@ -328,6 +339,8 @@ export default function AgendaApp({ characterId }: Props) {
         { data: eventData, error: eventError },
         { data: proposalData, error: proposalError },
         { data: responseData, error: responseError },
+        { data: portalCourseData, error: portalCourseError },
+        { data: portalAppointmentData, error: portalAppointmentError },
       ] = await Promise.all([
         supabase.from('agenda_events').select('*').order('starts_at'),
         supabase.from('agenda_proposals').select('*').order('created_at', {
@@ -337,11 +350,15 @@ export default function AgendaApp({ characterId }: Props) {
           .from('agenda_proposal_responses')
           .select('*')
           .eq('character_id', characterId),
+        supabase.from('portal_courses').select('id,subject,scheduled_at,details').order('scheduled_at'),
+        supabase.from('portal_appointments').select('id,created_by_character_id,target_character_id,reason').eq('status', 'accepted'),
       ]);
 
       if (eventError) throw eventError;
       if (proposalError) throw proposalError;
       if (responseError) throw responseError;
+      if (portalCourseError) throw portalCourseError;
+      if (portalAppointmentError) throw portalAppointmentError;
 
       const rawProposals = (proposalData || []) as Proposal[];
       const proposerIds = [...new Set(rawProposals.map(item => item.character_id))];
@@ -364,6 +381,61 @@ export default function AgendaApp({ characterId }: Props) {
         );
       }
 
+      const portalCourses = (portalCourseData || []) as Array<{ id: string; subject: string; scheduled_at: string; details: string | null }>;
+      const portalAppointments = (portalAppointmentData || []) as Array<{ id: string; created_by_character_id: string; target_character_id: string; reason: string | null }>;
+      const portalAppointmentIds = portalAppointments.map(item => item.id);
+      let acceptedAppointmentProposals: Array<{ appointment_id: string; proposed_at: string }> = [];
+      if (portalAppointmentIds.length > 0) {
+        const { data: acceptedData, error: acceptedError } = await supabase
+          .from('portal_appointment_proposals')
+          .select('appointment_id,proposed_at')
+          .in('appointment_id', portalAppointmentIds)
+          .eq('status', 'accepted')
+          .order('created_at', { ascending: false });
+        if (acceptedError) throw acceptedError;
+        acceptedAppointmentProposals = (acceptedData || []) as Array<{ appointment_id: string; proposed_at: string }>;
+      }
+
+      const otherCharacterIds = [...new Set(portalAppointments.map(item =>
+        item.created_by_character_id === characterId ? item.target_character_id : item.created_by_character_id
+      ))];
+      let otherNames: Record<string, string> = {};
+      if (otherCharacterIds.length > 0) {
+        const { data: otherData, error: otherError } = await supabase
+          .from('characters')
+          .select('id,name,first_name')
+          .in('id', otherCharacterIds);
+        if (otherError) throw otherError;
+        otherNames = Object.fromEntries((otherData || []).map(item => [
+          item.id,
+          `${item.first_name || ''} ${item.name || ''}`.trim()
+        ]));
+      }
+
+      const portalCourseItems: PortalAgendaItem[] = portalCourses.map(item => ({
+        id: `portal-course-${item.id}`,
+        title: item.subject,
+        description: item.details,
+        starts_at: item.scheduled_at,
+        ends_at: null,
+        location: null,
+        kind: 'portal_course'
+      }));
+      const portalAppointmentItems: PortalAgendaItem[] = portalAppointments.flatMap(item => {
+        const accepted = acceptedAppointmentProposals.find(proposal => proposal.appointment_id === item.id);
+        if (!accepted) return [];
+        const otherId = item.created_by_character_id === characterId ? item.target_character_id : item.created_by_character_id;
+        return [{
+          id: `portal-appointment-${item.id}`,
+          title: 'Rendez-vous · ' + (otherNames[otherId] || 'Personnage'),
+          description: item.reason,
+          starts_at: accepted.proposed_at,
+          ends_at: null,
+          location: null,
+          kind: 'portal_appointment' as const
+        }];
+      });
+      setPortalItems([...portalCourseItems, ...portalAppointmentItems]);
       setEvents((eventData || []) as AgendaEvent[]);
       setProposals(
         rawProposals.map(item => ({
@@ -835,7 +907,7 @@ export default function AgendaApp({ characterId }: Props) {
                             {item.title}
                           </h3>
                           <span className="rounded-full border border-gold-500/30 px-2 py-1 text-xs text-gold-300">
-                            {item.kind === 'proposal' ? 'Proposition acceptée' : 'Événement'}
+                            {item.kind === 'proposal' ? 'Proposition acceptée' : item.kind === 'portal_course' ? 'Cours' : item.kind === 'portal_appointment' ? 'Rendez-vous' : 'Événement'}
                           </span>
                         </div>
 
