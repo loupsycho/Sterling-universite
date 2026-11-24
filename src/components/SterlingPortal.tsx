@@ -530,7 +530,7 @@ export default function SterlingPortal({ characterId }: Props) {
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-2 text-xs text-bone-400">La fiche d’appel sera disponible à l’heure du cours.</p>
+                      <p className="mt-2 text-xs text-bone-400">La fiche d’appel devient accessible à l’heure prévue du cours. Le professeur la complète lorsqu’il décide que le cours est terminé.</p>
                     )}
                   </div>
                 ))}
@@ -539,10 +539,10 @@ export default function SterlingPortal({ characterId }: Props) {
             {canCall && (
               <button disabled={saving || !allMarked} onClick={() => void finalizeCourse(course)}
                 className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40">
-                <Check className="h-4 w-4" /> Valider définitivement la fiche d’appel
+                <Check className="h-4 w-4" /> Terminer le cours et valider définitivement l’appel
               </button>
             )}
-            {!course.attendance_submitted && !canCall && <p className="mt-3 text-xs text-bone-400">La fiche d’appel sera accessible à partir de l’heure du cours.</p>}
+            {!course.attendance_submitted && !canCall && <p className="mt-3 text-xs text-bone-400">Le professeur peut compléter l’appel à partir de l’heure prévue du cours, puis terminer le cours lorsqu’il le souhaite. Aucune durée de cours n’est imposée.</p>}
           </div>
         )}
       </article>
