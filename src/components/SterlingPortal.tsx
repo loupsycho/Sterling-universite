@@ -44,6 +44,7 @@ type Proposal = {
   proposed_at: string;
   status: 'pending' | 'accepted' | 'refused';
   refusal_reason: string | null;
+  responded_by_character_id: string | null;
   created_at: string;
 };
 
@@ -558,7 +559,7 @@ export default function SterlingPortal({ characterId }: Props) {
     const ownReport = reports.find(report => report.appointment_id === appointment.id && report.character_id === characterId);
     const otherReport = reports.find(report => report.appointment_id === appointment.id && report.character_id === otherId);
     const canRespond = mode === 'request' && proposal?.status === 'pending' && !ownProposal;
-    const canProposeAgain = mode === 'request' && proposal?.status === 'refused';
+    const canProposeAgain = mode === 'request' && proposal?.status === 'refused' && proposal.responded_by_character_id === characterId;
     const canCancel = mode === 'upcoming' && appointment.status === 'accepted' && new Date(scheduled).getTime() - Date.now() > 2 * 60 * 60 * 1000;
     const canReport = appointment.status === 'accepted' && new Date(scheduled).getTime() < Date.now();
 

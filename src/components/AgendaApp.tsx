@@ -350,7 +350,7 @@ export default function AgendaApp({ characterId }: Props) {
           .from('agenda_proposal_responses')
           .select('*')
           .eq('character_id', characterId),
-        supabase.from('portal_courses').select('id,subject,scheduled_at,details').order('scheduled_at'),
+        supabase.from('portal_courses').select('id,subject,scheduled_at,details,is_historical').order('scheduled_at'),
         supabase.from('portal_appointments').select('id,created_by_character_id,target_character_id,reason').eq('status', 'accepted'),
       ]);
 
@@ -381,7 +381,7 @@ export default function AgendaApp({ characterId }: Props) {
         );
       }
 
-      const portalCourses = (portalCourseData || []) as Array<{ id: string; subject: string; scheduled_at: string; details: string | null }>;
+      const portalCourses = ((portalCourseData || []) as Array<{ id: string; subject: string; scheduled_at: string; details: string | null; is_historical: boolean }>).filter(item => !item.is_historical);
       const portalAppointments = (portalAppointmentData || []) as Array<{ id: string; created_by_character_id: string; target_character_id: string; reason: string | null }>;
       const portalAppointmentIds = portalAppointments.map(item => item.id);
       let acceptedAppointmentProposals: Array<{ appointment_id: string; proposed_at: string }> = [];
@@ -486,6 +486,9 @@ export default function AgendaApp({ characterId }: Props) {
           void loadAgenda();
         }
       )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_courses' }, () => { void loadAgenda(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_appointments' }, () => { void loadAgenda(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_appointment_proposals' }, () => { void loadAgenda(); })
       .subscribe();
 
     return () => {
