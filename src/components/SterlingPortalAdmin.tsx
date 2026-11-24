@@ -68,12 +68,12 @@ export default function SterlingPortalAdmin() {
       const byPlayer = players.map(player => {
         const playerCharacters = characters.filter(character => character.player_id === player.id).map(character => {
           const events: EventItem[] = [];
-          attendance.filter(row => row.character_id === character.id && (row.attendance_status === 'absent' || row.attendance_status === 'late')).forEach(row => {
+          attendance.filter(row => row.character_id === character.id && (row.attendance_status === 'absent' || row.attendance_status === 'late') && courseMap.get(row.course_id)?.attendance_submitted).forEach(row => {
             const course = courseMap.get(row.course_id);
             if (!course) return;
             events.push({
               kind: row.attendance_status === 'late' ? 'late' : 'absence',
-              label: row.attendance_status === 'late' ? 'Retard · ' + course.subject : 'Absence · ' + course.subject,
+              label: row.attendance_status === 'late' ? 'Retard · cours de ' + course.subject : 'Absence · cours de ' + course.subject,
               date: course.scheduled_at,
               character: characterLabel(character),
               note: row.had_notified_absence ? 'Avait prévenu' : undefined
@@ -110,7 +110,19 @@ export default function SterlingPortalAdmin() {
     }
   }
 
-  useEffect(() => { void loadData(); }, []);
+  useEffect(() => {
+    void loadData();
+    const channel = supabase
+      .channel('sterling-portal-admin-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_course_students' }, () => { void loadData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_courses' }, () => { void loadData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'portal_appointment_reports' }, () => { void loadData(); })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
 
   async function saveThresholds() {
     setSaving(true); setError(''); setNotice('');
