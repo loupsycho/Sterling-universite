@@ -140,6 +140,15 @@ export default function SterlingPortal({ characterId }: Props) {
   }, [character]);
   const isTeacher = Boolean(teacherSubject);
   const canSeeCourses = Boolean(isStudent || isTeacher);
+  const teacherStudents = useMemo(() => {
+    if (!isTeacher || !teacherSubject) return [];
+    return directory
+      .filter(person =>
+        person.character_type === 'Étudiant(e)' &&
+        (person.study_program || '').trim().toLocaleLowerCase('fr') === teacherSubject.trim().toLocaleLowerCase('fr')
+      )
+      .sort((a, b) => (a.first_name || a.name).localeCompare(b.first_name || b.name, 'fr'));
+  }, [directory, isTeacher, teacherSubject]);
 
   const peopleById = useMemo(() => {
     const map: Record<string, CharacterRow> = {};
@@ -679,6 +688,22 @@ export default function SterlingPortal({ characterId }: Props) {
               {unreadCount(['course_upcoming','course_response']) > 0 && <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">{unreadCount(['course_upcoming','course_response'])}</span>}
             </button>
           </div>
+
+          {isTeacher && (
+            <section className="mb-5 rounded-2xl border border-gold-500/25 bg-ink-900/70 p-4 sm:p-5">
+              <p className="text-sm font-medium text-bone-200">Prof : {character?.first_name ? character.first_name + ' ' : ''}{character?.name || 'Nom indisponible'}</p>
+              <h2 className="mt-3 font-semibold text-gold-200">Élèves ({teacherStudents.length})</h2>
+              {teacherStudents.length > 0 ? (
+                <ul className="mt-2 space-y-1.5 text-sm text-bone-300">
+                  {teacherStudents.map(student => (
+                    <li key={student.id}>• {student.first_name ? student.first_name + ' ' : ''}{student.name}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-bone-400">Aucun élève inscrit dans cette filière pour le moment.</p>
+              )}
+            </section>
+          )}
 
           {isTeacher && courseSubtab === 'upcoming' && (
             <section className="mb-5 rounded-2xl border border-gold-500/25 bg-ink-900/70 p-4 sm:p-5">
