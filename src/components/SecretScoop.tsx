@@ -13,6 +13,13 @@ type ScoopPost = {
   created_at: string;
 };
 
+type ScoopReaction = {
+  id: string;
+  post_id: string;
+  character_id: string;
+  reaction_type: 'like' | 'dislike';
+};
+
 type ScoopMessage = {
   id: string;
   character_id: string;
@@ -52,6 +59,7 @@ const SIGNATURE = "Don't hide. I see you.\nTHE SECRET SCOOP\nYour secrets. Our b
 export default function SecretScoop({ characterId, adminOnly = false }: SecretScoopProps) {
   const [tab, setTab] = useState<Tab>(adminOnly ? 'admin' : 'feed');
   const [posts, setPosts] = useState<ScoopPost[]>([]);
+  const [reactions, setReactions] = useState<ScoopReaction[]>([]);
   const [messages, setMessages] = useState<ScoopMessage[]>([]);
   const [characters, setCharacters] = useState<ScoopCharacter[]>([]);
   const [submissions, setSubmissions] = useState<ScoopSubmission[]>([]);
@@ -150,6 +158,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
         charactersResult,
         submissionsResult,
         messagesResult,
+        reactionsResult,
       ] = await Promise.all([
         supabase
           .from('scoop_posts')
@@ -177,6 +186,10 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
           .from('scoop_messages')
           .select('*')
           .order('created_at', { ascending: true }),
+
+        supabase
+          .from('scoop_post_reactions')
+          .select('*'),
       ]);
 
       if (postsResult.error) throw postsResult.error;
@@ -184,8 +197,10 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
       if (charactersResult.error) throw charactersResult.error;
       if (messagesResult.error) throw messagesResult.error;
       if (submissionsResult.error) throw submissionsResult.error;
+      if (reactionsResult.error) throw reactionsResult.error;
 
       setPosts((postsResult.data || []) as ScoopPost[]);
+      setReactions((reactionsResult.data || []) as ScoopReaction[]);
       setSettings(settingsResult.data || { avatar_url: null });
       setCharacters((charactersResult.data || []) as ScoopCharacter[]);
       setSubmissions((submissionsResult.data || []) as ScoopSubmission[]);
@@ -277,6 +292,44 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
       setError(err instanceof Error ? err.message : 'Publication impossible.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const toggleReaction = async (postId: string, reactionType: 'like' | 'dislike') => {
+    if (!characterId || adminOnly) return;
+    const current = reactions.find(
+      (reaction) => reaction.post_id === postId && reaction.character_id === characterId
+    );
+
+    setError('');
+    try {
+      if (current?.reaction_type === reactionType) {
+        const { error: deleteError } = await supabase
+          .from('scoop_post_reactions')
+          .delete()
+          .eq('id', current.id);
+        if (deleteError) throw deleteError;
+        setReactions((previous) => previous.filter((reaction) => reaction.id !== current.id));
+      } else if (current) {
+        const { data, error: updateError } = await supabase
+          .from('scoop_post_reactions')
+          .update({ reaction_type: reactionType })
+          .eq('id', current.id)
+          .select()
+          .single();
+        if (updateError) throw updateError;
+        setReactions((previous) => previous.map((reaction) => reaction.id === current.id ? data as ScoopReaction : reaction));
+      } else {
+        const { data, error: insertError } = await supabase
+          .from('scoop_post_reactions')
+          .insert({ post_id: postId, character_id: characterId, reaction_type: reactionType })
+          .select()
+          .single();
+        if (insertError) throw insertError;
+        setReactions((previous) => [...previous, data as ScoopReaction]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible d’enregistrer ta réaction.');
     }
   };
 
@@ -620,6 +673,37 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                     alt="Publication"
                     className="w-full max-h-80 object-cover rounded-lg border border-gold-500/20"
                   />
+                )}
+
+                {!adminOnly && characterId && (
+                  <div className="flex items-center gap-3 border-t border-gold-500/10 pt-3">
+                    {(['like', 'dislike'] as const).map((reactionType) => {
+                      const count = reactions.filter(
+                        (reaction) => reaction.post_id === post.id && reaction.reaction_type === reactionType
+                      ).length;
+                      const selected = reactions.some(
+                        (reaction) => reaction.post_id === post.id &&
+                          reaction.character_id === characterId &&
+                          reaction.reaction_type === reactionType
+                      );
+                      return (
+                        <button
+                          key={reactionType}
+                          type="button"
+                          onClick={() => void toggleReaction(post.id, reactionType)}
+                          aria-pressed={selected}
+                          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${selected
+                            ? reactionType === 'like'
+                              ? 'border-pink-400/60 bg-pink-500/15 text-pink-300'
+                              : 'border-red-400/60 bg-red-500/15 text-red-300'
+                            : 'border-gold-500/20 text-bone-400 hover:border-gold-400/50 hover:text-bone-200'}`}
+                        >
+                          <span>{reactionType === 'like' ? '❤️' : '👎'}</span>
+                          <span>{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
 
                 <div className="border-t border-gold-500/10 pt-3 text-center">
