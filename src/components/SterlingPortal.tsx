@@ -369,8 +369,9 @@ export default function SterlingPortal({ characterId }: Props) {
   }
 
   async function finalizeCourse(course: Course) {
-    if (!window.confirm('Valider définitivement cette fiche d’appel ? Elle sera ensuite verrouillée et ne pourra plus être modifiée.')) return;
-    setSaving(true); setError('');
+    // Avoid native confirm dialogs in Discord popouts/mobile webviews: they can
+    // be suppressed by the host and make the button appear unresponsive.
+    setSaving(true); setError(''); setNotice('');
     const { error: finalizeError } = await supabase.rpc('portal_finalize_course', { p_course_id: course.id });
     if (finalizeError) setError(finalizeError.message);
     else {
