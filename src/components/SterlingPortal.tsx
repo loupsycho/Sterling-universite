@@ -68,8 +68,8 @@ type Report = {
 type Props = { characterId: string };
 
 const COURSE_TYPES = ['course_upcoming', 'course_response', 'course_attendance'];
-const REQUEST_TYPES = ['appointment_request', 'appointment_proposal', 'appointment_response'];
-const UPCOMING_TYPES = ['appointment_response'];
+const REQUEST_TYPES = ['appointment_request', 'appointment_proposal', 'appointment_refused'];
+const UPCOMING_TYPES = ['appointment_accepted'];
 const OLD_TYPES = ['appointment_cancelled', 'appointment_report_reminder'];
 
 function displayName(person?: CharacterRow | null) {
@@ -419,8 +419,9 @@ export default function SterlingPortal({ characterId }: Props) {
 
   const unreadCount = (types: string[]) => types.reduce((sum, type) => sum + (unread[type] || 0), 0);
   const myCourses = courses.filter(course => course.teacher_character_id === characterId || courseStudents.some(row => row.course_id === course.id && row.character_id === characterId));
-  const upcomingCourses = myCourses.filter(course => new Date(course.scheduled_at).getTime() > Date.now() || !course.attendance_submitted);
+  const upcomingCourses = myCourses.filter(course => new Date(course.scheduled_at).getTime() > Date.now() || (!course.attendance_submitted && !course.is_historical));
   const pastCourses = myCourses.filter(course => new Date(course.scheduled_at).getTime() <= Date.now() && (course.attendance_submitted || course.is_historical));
+  const hasUnsubmittedCourse = isTeacher && courses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted);
   const myAppointments = appointments.filter(item => item.created_by_character_id === characterId || item.target_character_id === characterId);
   const appointmentDateFor = (item: Appointment) => latestProposal(item)?.proposed_at || item.created_at;
   const upcomingAppointments = myAppointments.filter(item => item.status === 'accepted' && new Date(appointmentDateFor(item)).getTime() >= Date.now());
@@ -673,8 +674,8 @@ export default function SterlingPortal({ characterId }: Props) {
                 </label>
                 <textarea rows={3} value={courseDetails} onChange={event => setCourseDetails(event.target.value)} placeholder="Détails du cours (facultatif)" className="w-full rounded-xl border border-white/10 bg-ink-950 p-3 text-sm text-bone-100" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="submit" disabled={saving || upcomingCourses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted)} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /{historicalMode ? 'Ajouter l’ancien cours' : 'Programmer le cours'}</button>
-                  <button type="button" onClick={() => { setHistoricalMode(true); setCourseDate(localInputValue(new Date(Date.now() - 86400000))); }} disabled={saving || courses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted)} className="rounded-xl border border-gold-500/40 px-4 py-3 text-sm text-gold-200 disabled:opacity-40">Ajouter un ancien cours</button>
+                  <button type="submit" disabled={saving || hasUnsubmittedCourse} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /{historicalMode ? 'Ajouter l’ancien cours' : 'Programmer le cours'}</button>
+                  <button type="button" onClick={() => { setHistoricalMode(true); setCourseDate(localInputValue(new Date(Date.now() - 86400000))); }} disabled={saving || hasUnsubmittedCourse} className="rounded-xl border border-gold-500/40 px-4 py-3 text-sm text-gold-200 disabled:opacity-40">Ajouter un ancien cours</button>
                 </div>
                 {historicalMode && (
                   <div className="rounded-xl border border-gold-500/30 bg-gold-500/5 p-3">
