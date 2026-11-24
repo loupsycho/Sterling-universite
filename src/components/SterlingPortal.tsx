@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  BookOpen, CalendarDays, CalendarPlus, Check, Clock3, GraduationCap,
-  History, Loader2, MessageSquareText, Plus, RefreshCw, Send, UserRound,
-  X, Bell
+  BookOpen, CalendarDays, Check, GraduationCap, History, Loader2,
+  Plus, RefreshCw, Send, X
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -70,8 +69,8 @@ type Props = { characterId: string };
 
 const COURSE_TYPES = ['course_upcoming', 'course_response', 'course_attendance'];
 const REQUEST_TYPES = ['appointment_request', 'appointment_proposal', 'appointment_response'];
-const UPCOMING_TYPES = ['appointment_request', 'appointment_proposal', 'appointment_response', 'appointment_cancelled'];
-const OLD_TYPES = ['appointment_report_reminder'];
+const UPCOMING_TYPES = ['appointment_response'];
+const OLD_TYPES = ['appointment_cancelled', 'appointment_report_reminder'];
 
 function displayName(person?: CharacterRow | null) {
   if (!person) return 'Personnage inconnu';
@@ -139,7 +138,6 @@ export default function SterlingPortal({ characterId }: Props) {
   }, [character]);
   const isTeacher = Boolean(teacherSubject);
   const canSeeCourses = Boolean(isStudent || isTeacher);
-  const currentPlayerName = character?.players?.discord_username || 'Joueur inconnu';
 
   const peopleById = useMemo(() => {
     const map: Record<string, CharacterRow> = {};
@@ -268,7 +266,7 @@ export default function SterlingPortal({ characterId }: Props) {
     }
   }, [mainTab, courseSubtab, appointmentSubtab, character, markRead]);
 
-  async function createCourse(event: React.FormEvent) {
+  async function createCourse(event: FormEvent) {
     event.preventDefault();
     if (!character || !isTeacher) return;
     setSaving(true); setError(''); setNotice('');
@@ -328,7 +326,7 @@ export default function SterlingPortal({ characterId }: Props) {
     setSaving(false);
   }
 
-  async function createAppointment(event: React.FormEvent) {
+  async function createAppointment(event: FormEvent) {
     event.preventDefault();
     if (!character || !appointmentTarget) return;
     setSaving(true); setError(''); setNotice('');
@@ -448,7 +446,7 @@ export default function SterlingPortal({ characterId }: Props) {
     const canCall = isOwnCourse && !course.attendance_submitted && new Date(course.scheduled_at).getTime() <= Date.now();
     const canDeclare = !isOwnCourse && roster.some(row => row.character_id === characterId) &&
       !course.attendance_submitted && new Date(course.scheduled_at).getTime() - Date.now() > 2 * 60 * 60 * 1000;
-    const allMarked = roster.length > 0 && roster.every(row => row.attendance_status !== null);
+    const allMarked = roster.every(row => row.attendance_status !== null);
     const ownRow = roster.find(row => row.character_id === characterId);
 
     return (
@@ -621,7 +619,7 @@ export default function SterlingPortal({ characterId }: Props) {
   };
 
   const courseCount = unreadCount(COURSE_TYPES);
-  const appointmentCount = unreadCount(REQUEST_TYPES.concat(UPCOMING_TYPES, OLD_TYPES));
+  const appointmentCount = unreadCount([...new Set(REQUEST_TYPES.concat(UPCOMING_TYPES, OLD_TYPES))]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 pb-10 sm:px-6">
@@ -675,7 +673,7 @@ export default function SterlingPortal({ characterId }: Props) {
                 </label>
                 <textarea rows={3} value={courseDetails} onChange={event => setCourseDetails(event.target.value)} placeholder="Détails du cours (facultatif)" className="w-full rounded-xl border border-white/10 bg-ink-950 p-3 text-sm text-bone-100" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="submit" disabled={saving || upcomingCourses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted)} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /> Programmer le cours</button>
+                  <button type="submit" disabled={saving || upcomingCourses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted)} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /{historicalMode ? 'Ajouter l’ancien cours' : 'Programmer le cours'}</button>
                   <button type="button" onClick={() => { setHistoricalMode(true); setCourseDate(localInputValue(new Date(Date.now() - 86400000))); }} disabled={saving || courses.some(item => item.teacher_character_id === characterId && !item.attendance_submitted)} className="rounded-xl border border-gold-500/40 px-4 py-3 text-sm text-gold-200 disabled:opacity-40">Ajouter un ancien cours</button>
                 </div>
                 {historicalMode && (
