@@ -474,7 +474,7 @@ export default function SterlingPortal({ characterId }: Props) {
           <div>
             <h3 className="text-lg font-semibold text-gold-200">{course.subject}</h3>
             <p className="mt-1 flex items-center gap-2 text-xs text-bone-400"><CalendarDays className="h-4 w-4" />{dateLabel(course.scheduled_at)}</p>
-            {!isOwnCourse && <p className="mt-2 text-xs text-bone-400">Professeur : {displayName(peopleById[course.teacher_character_id])}</p>}
+            <p className="mt-2 text-xs text-bone-400">Professeur : {displayName(peopleById[course.teacher_character_id])}</p>
           </div>
           <span className={'rounded-full border px-3 py-1 text-xs ' + (course.attendance_submitted ? statusClass('present') : statusClass('pending'))}>
             {course.attendance_submitted ? 'Appel validé' : course.is_historical ? 'Ancien cours à compléter' : 'À traiter'}
@@ -503,49 +503,31 @@ export default function SterlingPortal({ characterId }: Props) {
           </div>
         )}
 
-        {isOwnCourse && (
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <h4 className="font-semibold text-bone-100">Liste d’appel ({roster.length} élèves)</h4>
-            {roster.length === 0 ? <p className="mt-2 text-sm text-bone-400">Aucun élève n’est actuellement associé à cette matière.</p> : (
-              <div className="mt-3 space-y-3">
-                {roster.map(row => (
-                  <div key={row.id} className="rounded-xl border border-white/10 bg-ink-950 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm text-bone-100">{displayName(row.characters)}</p>
-                      {!course.attendance_submitted && (
-                        <span className="text-xs text-bone-400">A répondu : {statusLabel(row.availability)}</span>
-                      )}
-                    </div>
-                    {course.attendance_submitted ? (
-                      <div className="mt-2">
-                        <span className={'inline-flex rounded-full border px-2.5 py-1 text-xs ' + statusClass(row.attendance_status || 'pending')}>{statusLabel(row.attendance_status || 'pending')}</span>
-                        {row.had_notified_absence && <p className="mt-1 text-xs text-bone-400">(Avait prévenu)</p>}
-                      </div>
-                    ) : canCall ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {(['present','late','absent'] as const).map(value => (
-                          <button key={value} disabled={saving} onClick={() => void setAttendance(row, value)}
-                            className={'rounded-lg border px-3 py-2 text-xs ' + (row.attendance_status === value ? statusClass(value) : 'border-white/10 text-bone-300')}>
-                            {statusLabel(value)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-bone-400">La fiche d’appel devient accessible à l’heure prévue du cours. Le professeur la complète lorsqu’il décide que le cours est terminé.</p>
-                    )}
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <h4 className="font-semibold text-bone-100">{isOwnCourse ? "Liste d’appel (" + roster.length + " élèves)" : "Élèves de ce cours (" + roster.length + ")"}</h4>
+          {roster.length === 0 ? <p className="mt-2 text-sm text-bone-400">Aucun élève n’est actuellement associé à cette matière.</p> : (
+            <div className="mt-3 space-y-2">
+              {roster.map(row => (
+                <div key={row.id} className="rounded-xl border border-white/10 bg-ink-950 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-bone-100">{displayName(row.characters)}</p>
+                    {isOwnCourse && !course.attendance_submitted && <span className="text-xs text-bone-400">A répondu : {statusLabel(row.availability)}</span>}
                   </div>
-                ))}
-              </div>
-            )}
-            {canCall && (
-              <button disabled={saving || !allMarked} onClick={() => void finalizeCourse(course)}
-                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40">
-                <Check className="h-4 w-4" /> Terminer le cours et valider définitivement l’appel
-              </button>
-            )}
-            {!course.attendance_submitted && !canCall && <p className="mt-3 text-xs text-bone-400">Le professeur peut compléter l’appel à partir de l’heure prévue du cours, puis terminer le cours lorsqu’il le souhaite. Aucune durée de cours n’est imposée.</p>}
-          </div>
-        )}
+                  {isOwnCourse && course.attendance_submitted && <div className="mt-2"><span className={'inline-flex rounded-full border px-2.5 py-1 text-xs ' + statusClass(row.attendance_status || 'pending')}>{statusLabel(row.attendance_status || 'pending')}</span>{row.had_notified_absence && <p className="mt-1 text-xs text-bone-400">(Avait prévenu)</p>}</div>}
+                  {isOwnCourse && !course.attendance_submitted && canCall ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(['present','late','absent'] as const).map(value => (
+                        <button key={value} disabled={saving} onClick={() => void setAttendance(row, value)} className={'rounded-lg border px-3 py-2 text-xs ' + (row.attendance_status === value ? statusClass(value) : 'border-white/10 text-bone-300')}>{statusLabel(value)}</button>
+                      ))}
+                    </div>
+                  ) : isOwnCourse && !course.attendance_submitted ? <p className="mt-2 text-xs text-bone-400">La fiche d’appel devient accessible à l’heure prévue du cours. Le professeur la complète lorsqu’il décide que le cours est terminé.</p> : null}
+                </div>
+              ))}
+            </div>
+          )}
+          {isOwnCourse && canCall && <button disabled={saving || !allMarked} onClick={() => void finalizeCourse(course)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40"><Check className="h-4 w-4" /> Terminer le cours et valider définitivement l’appel</button>}
+          {isOwnCourse && !course.attendance_submitted && !canCall && <p className="mt-3 text-xs text-bone-400">Le professeur peut compléter l’appel à partir de l’heure prévue du cours, puis terminer le cours lorsqu’il le souhaite. Aucune durée de cours n’est imposée.</p>}
+        </div>
       </article>
     );
   };
