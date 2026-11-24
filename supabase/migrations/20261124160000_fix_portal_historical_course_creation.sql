@@ -127,3 +127,12 @@ $function$;
 
 revoke all on function public.portal_finalize_course(uuid) from public, anon;
 grant execute on function public.portal_finalize_course(uuid) to authenticated;
+
+-- Send the existing course-finalized notifications when a teacher closes an
+-- attendance sheet. The admin dashboard reads the finalized course records.
+drop trigger if exists portal_courses_notify_finalized on public.portal_courses;
+create trigger portal_courses_notify_finalized
+after update of attendance_submitted on public.portal_courses
+for each row
+when (new.attendance_submitted = true and old.attendance_submitted = false)
+execute function public.portal_notify_course_finalized();
