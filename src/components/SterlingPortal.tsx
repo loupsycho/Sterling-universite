@@ -674,7 +674,7 @@ export default function SterlingPortal({ characterId }: Props) {
                 </label>
                 <textarea rows={3} value={courseDetails} onChange={event => setCourseDetails(event.target.value)} placeholder="Détails du cours (facultatif)" className="w-full rounded-xl border border-white/10 bg-ink-950 p-3 text-sm text-bone-100" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="submit" disabled={saving || hasUnsubmittedCourse} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /{historicalMode ? 'Ajouter l’ancien cours' : 'Programmer le cours'}</button>
+                  <button type="submit" disabled={saving || hasUnsubmittedCourse} className="inline-flex items-center gap-2 rounded-xl bg-gold-500 px-4 py-3 text-sm font-semibold text-ink-950 disabled:opacity-40"><Plus className="h-4 w-4" /> {historicalMode ? 'Ajouter l’ancien cours' : 'Programmer le cours'}</button>
                   <button type="button" onClick={() => { setHistoricalMode(true); setCourseDate(localInputValue(new Date(Date.now() - 86400000))); }} disabled={saving || hasUnsubmittedCourse} className="rounded-xl border border-gold-500/40 px-4 py-3 text-sm text-gold-200 disabled:opacity-40">Ajouter un ancien cours</button>
                 </div>
                 {historicalMode && (
