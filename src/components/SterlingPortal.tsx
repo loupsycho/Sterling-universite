@@ -337,7 +337,10 @@ export default function SterlingPortal({ characterId }: Props) {
       await loadAll();
     } catch (createError) {
       console.error(createError);
-      setError(createError instanceof Error ? createError.message : 'Impossible de programmer ce cours.');
+      const message = createError && typeof createError === 'object' && 'message' in createError
+        ? String((createError as { message?: unknown }).message || '')
+        : createError instanceof Error ? createError.message : '';
+      setError(message || 'Impossible de programmer ce cours. Vérifie la date et réessaie.');
     } finally {
       setSaving(false);
     }
