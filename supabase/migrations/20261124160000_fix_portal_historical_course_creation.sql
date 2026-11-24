@@ -49,8 +49,7 @@ begin
   end if;
 
   if exists (
-    select 1
-    from public.portal_courses pc
+    select 1 from public.portal_courses pc
     where pc.teacher_character_id = p_teacher_character_id
       and pc.attendance_submitted = false
   ) then
@@ -79,3 +78,52 @@ $function$;
 
 revoke all on function public.portal_create_course(uuid, timestamptz, text, boolean) from public, anon;
 grant execute on function public.portal_create_course(uuid, timestamptz, text, boolean) to authenticated;
+
+-- Finalization must bypass table RLS only after checking the connected teacher
+-- owns this course. This also fires the existing finalization notification trigger.
+create or replace function public.portal_finalize_course(p_course_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  v_course public.portal_courses%rowtype;
+begin
+  select pc.*
+    into v_course
+  from public.portal_courses pc
+  join public.characters teacher on teacher.id = pc.teacher_character_id
+  where pc.id = p_course_id
+    and teacher.player_id = auth.uid()
+  for update of pc;
+
+  if not found then
+    raise exception 'Ce cours est introuvable ou ne vous appartient pas.';
+  end if;
+
+  if v_course.attendance_submitted then
+    raise exception 'La fiche d’appel a déjà été validée.';
+  end if;
+
+  if v_course.scheduled_at > now() then
+    raise exception 'Un cours ne peut pas être clôturé avant sa date et son heure.';
+  end if;
+
+  if exists (
+    select 1 from public.portal_course_students
+    where course_id = p_course_id and attendance_status is null
+  ) then
+    raise exception 'Chaque élève doit recevoir un statut définitif avant la validation.';
+  end if;
+
+  update public.portal_courses
+  set attendance_submitted = true,
+      attendance_submitted_at = now(),
+      updated_at = now()
+  where id = p_course_id;
+end;
+$function$;
+
+revoke all on function public.portal_finalize_course(uuid) from public, anon;
+grant execute on function public.portal_finalize_course(uuid) to authenticated;
