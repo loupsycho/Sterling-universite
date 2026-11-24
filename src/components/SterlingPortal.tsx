@@ -140,15 +140,24 @@ export default function SterlingPortal({ characterId }: Props) {
   }, [character]);
   const isTeacher = Boolean(teacherSubject);
   const canSeeCourses = Boolean(isStudent || isTeacher);
-  const teacherStudents = useMemo(() => {
-    if (!isTeacher || !teacherSubject) return [];
+  const rosterSubject = isTeacher ? teacherSubject : (character?.study_program || '');
+  const programStudents = useMemo(() => {
+    if (!rosterSubject) return [];
     return directory
       .filter(person =>
         person.character_type === 'Étudiant(e)' &&
-        (person.study_program || '').trim().toLocaleLowerCase('fr') === teacherSubject.trim().toLocaleLowerCase('fr')
+        (person.study_program || '').trim().toLocaleLowerCase('fr') === rosterSubject.trim().toLocaleLowerCase('fr')
       )
       .sort((a, b) => (a.first_name || a.name).localeCompare(b.first_name || b.name, 'fr'));
-  }, [directory, isTeacher, teacherSubject]);
+  }, [directory, rosterSubject]);
+  const programTeacher = useMemo(() => {
+    if (!rosterSubject) return null;
+    return directory.find(person => {
+      if (!person.staff_job || !person.staff_job.toLowerCase().startsWith('professeur')) return false;
+      const subject = person.staff_job.split('—').slice(1).join('—').trim();
+      return subject.toLocaleLowerCase('fr') === rosterSubject.trim().toLocaleLowerCase('fr');
+    }) || null;
+  }, [directory, rosterSubject]);
 
   const peopleById = useMemo(() => {
     const map: Record<string, CharacterRow> = {};
@@ -689,13 +698,13 @@ export default function SterlingPortal({ characterId }: Props) {
             </button>
           </div>
 
-          {isTeacher && (
+          {(isTeacher || isStudent) && (
             <section className="mb-5 rounded-2xl border border-gold-500/25 bg-ink-900/70 p-4 sm:p-5">
-              <p className="text-sm font-medium text-bone-200">Prof : {character?.first_name ? character.first_name + ' ' : ''}{character?.name || 'Nom indisponible'}</p>
-              <h2 className="mt-3 font-semibold text-gold-200">Élèves ({teacherStudents.length})</h2>
-              {teacherStudents.length > 0 ? (
+              <p className="text-sm font-medium text-bone-200">Prof : {programTeacher ? (programTeacher.first_name ? programTeacher.first_name + ' ' : '') + programTeacher.name : 'Libre pour le moment'}</p>
+              <h2 className="mt-3 font-semibold text-gold-200">Élèves ({programStudents.length})</h2>
+              {programStudents.length > 0 ? (
                 <ul className="mt-2 space-y-1.5 text-sm text-bone-300">
-                  {teacherStudents.map(student => (
+                  {programStudents.map(student => (
                     <li key={student.id}>• {student.first_name ? student.first_name + ' ' : ''}{student.name}</li>
                   ))}
                 </ul>
