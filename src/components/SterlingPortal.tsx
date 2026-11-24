@@ -239,6 +239,22 @@ export default function SterlingPortal({ characterId }: Props) {
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel(`sterling-portal-notifications-${characterId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `recipient_character_id=eq.${characterId}`
+      }, () => { void loadNotifications(); })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [characterId, loadNotifications]);
+
   const markRead = useCallback(async (types: string[]) => {
     if (!types.length) return;
     const { error: readError } = await supabase.from('notifications')
@@ -456,6 +472,7 @@ export default function SterlingPortal({ characterId }: Props) {
           <div>
             <h3 className="text-lg font-semibold text-gold-200">{course.subject}</h3>
             <p className="mt-1 flex items-center gap-2 text-xs text-bone-400"><CalendarDays className="h-4 w-4" />{dateLabel(course.scheduled_at)}</p>
+            {!isOwnCourse && <p className="mt-2 text-xs text-bone-400">Professeur : {displayName(peopleById[course.teacher_character_id])}</p>}
           </div>
           <span className={'rounded-full border px-3 py-1 text-xs ' + (course.attendance_submitted ? statusClass('present') : statusClass('pending'))}>
             {course.attendance_submitted ? 'Appel validé' : course.is_historical ? 'Ancien cours à compléter' : 'À traiter'}
