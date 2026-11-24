@@ -257,6 +257,21 @@ export default function SterlingPortal({ characterId }: Props) {
     };
   }, [characterId, loadNotifications]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel(`sterling-portal-course-roster-${characterId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'portal_course_students'
+      }, () => { void loadAll(); })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [characterId, loadAll]);
+
   const markRead = useCallback(async (types: string[]) => {
     if (!types.length) return;
     const { error: readError } = await supabase.from('notifications')
@@ -474,7 +489,7 @@ export default function SterlingPortal({ characterId }: Props) {
           <div>
             <h3 className="text-lg font-semibold text-gold-200">{course.subject}</h3>
             <p className="mt-1 flex items-center gap-2 text-xs text-bone-400"><CalendarDays className="h-4 w-4" />{dateLabel(course.scheduled_at)}</p>
-            <p className="mt-2 text-xs text-bone-400">Professeur : {displayName(peopleById[course.teacher_character_id])}</p>
+            <p className="mt-2 text-xs text-bone-400">Prof : {peopleById[course.teacher_character_id] ? displayName(peopleById[course.teacher_character_id]) : 'Libre pour le moment'}</p>
           </div>
           <span className={'rounded-full border px-3 py-1 text-xs ' + (course.attendance_submitted ? statusClass('present') : statusClass('pending'))}>
             {course.attendance_submitted ? 'Appel validé' : course.is_historical ? 'Ancien cours à compléter' : 'À traiter'}
@@ -504,8 +519,8 @@ export default function SterlingPortal({ characterId }: Props) {
         )}
 
         <div className="mt-4 border-t border-white/10 pt-4">
-          <h4 className="font-semibold text-bone-100">{isOwnCourse ? "Liste d’appel (" + roster.length + " élèves)" : "Élèves de ce cours (" + roster.length + ")"}</h4>
-          {roster.length === 0 ? <p className="mt-2 text-sm text-bone-400">Aucun élève n’est actuellement associé à cette matière.</p> : (
+          <h4 className="font-semibold text-bone-100">Élèves ({roster.length})</h4>
+          {roster.length === 0 ? <p className="mt-2 text-sm text-bone-400">Aucun élève inscrit pour le moment.</p> : (
             <div className="mt-3 space-y-2">
               {roster.map(row => (
                 <div key={row.id} className="rounded-xl border border-white/10 bg-ink-950 p-3">
