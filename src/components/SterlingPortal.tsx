@@ -14,7 +14,7 @@ type CharacterRow = {
   study_program: string | null;
   staff_job: string | null;
   status: string;
-  players?: { discord_username: string | null } | null;
+  players?: { discord_username: string | null } | { discord_username: string | null }[] | null;
 };
 
 type Course = {
@@ -74,8 +74,9 @@ const OLD_TYPES = ['appointment_cancelled', 'appointment_report_reminder'];
 
 function displayName(person?: CharacterRow | null) {
   if (!person) return 'Personnage inconnu';
+  const player = Array.isArray(person.players) ? person.players[0] : person.players;
   return (person.first_name ? person.first_name + ' ' : '') + person.name +
-    ' (' + (person.players?.discord_username || 'Joueur inconnu') + ')';
+    ' (' + (player?.discord_username || 'Joueur inconnu') + ')';
 }
 
 function localInputValue(date: Date) {

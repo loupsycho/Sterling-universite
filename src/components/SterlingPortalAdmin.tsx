@@ -46,6 +46,7 @@ export default function SterlingPortalAdmin() {
       const results = [playersResult, charactersResult, coursesResult, attendanceResult, appointmentsResult, proposalsResult, reportsResult, settingsResult];
       const failed = results.find(result => result.error);
       if (failed?.error) throw failed.error;
+      if (!settingsResult.data) throw new Error('Les paramètres administratifs sont introuvables.');
 
       const players = (playersResult.data || []) as Player[];
       const characters = (charactersResult.data || []) as Character[];
