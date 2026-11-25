@@ -257,14 +257,14 @@ export default function InstagramApp({ characterId }: Props) {
       const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const path = `${characterId}/${crypto.randomUUID()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type });
-      if (uploadError) { notify("Échec de l'envoi du média."); setUploading(false); return; }
+      if (uploadError) { console.error("Instagram media upload error:", uploadError); notify(`Échec de l'envoi du média : ${uploadError.message}`); setUploading(false); return; }
       const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
       uploaded.push({ media_url: data.publicUrl, media_type: mediaType(file), sort_order: i });
     }
     const { data: post, error } = await supabase.from('instagram_posts').insert({ character_id: characterId, image_url: uploaded[0].media_url, caption: caption.trim() || null }).select('id').single();
-    if (error || !post) { notify("Impossible de créer la publication."); setUploading(false); return; }
+    if (error || !post) { console.error("Instagram post creation error:", error); notify(`Impossible de créer la publication${error?.message ? ` : ${error.message}` : "."}`); setUploading(false); return; }
     const mediaInsert = await supabase.from('instagram_post_media').insert(uploaded.map(m => ({ post_id: post.id, media_url: m.media_url, media_type: m.media_type, thumbnail_url: m.media_type === 'video' ? m.media_url : null, sort_order: m.sort_order })));
-    if (mediaInsert.error) console.error('Instagram media rows:', mediaInsert.error);
+    if (mediaInsert.error) { console.error("Instagram media rows:", mediaInsert.error); notify(`Publication créée, mais ses médias n'ont pas pu être enregistrés : ${mediaInsert.error.message}`); setUploading(false); await loadAll(); return; }
     if (taggedIds.length) {
       const tagInsert = await supabase.from('instagram_post_tags').insert(taggedIds.map(id => ({ post_id: post.id, tagged_character_id: id })));
       if (tagInsert.error) console.error('Instagram tags:', tagInsert.error);
@@ -336,7 +336,7 @@ export default function InstagramApp({ characterId }: Props) {
   return <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gold-500/20 bg-ink-950 text-bone-100 shadow-2xl">
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gold-500/20 bg-ink-900/95 px-4 py-4 backdrop-blur">
       <div className="font-serif text-2xl italic tracking-tight text-gold-300">Instagram <span className="ml-2 font-sans text-[10px] not-italic uppercase tracking-[0.3em] text-bone-500">Sterling</span></div>
-      <div className="flex items-center gap-4"><button onClick={() => setTab('create')} aria-label="Créer une publication"><PlusSquare size={24} /></button><button onClick={() => void openNotifications()} className="relative" aria-label={unread > 0 ? `Notifications, ${unread} non lues` : 'Notifications'}><Heart size={25} />{unread > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full border border-ink-900 bg-red-600 px-1 text-[9px] font-bold text-white">{unread > 9 ? '9+' : unread}</span>}</button></div>
+      <div className="flex items-center gap-4"><button onClick={() => void openNotifications()} className="relative" aria-label={unread > 0 ? `Notifications, ${unread} non lues` : 'Notifications'}><Heart size={25} />{unread > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full border border-ink-900 bg-red-600 px-1 text-[9px] font-bold text-white">{unread > 9 ? '9+' : unread}</span>}</button></div>
     </header>
 
     <nav className="grid shrink-0 grid-cols-4 border-t border-gold-500/20 bg-ink-900 py-3">
@@ -355,7 +355,7 @@ export default function InstagramApp({ characterId }: Props) {
             <h2 className="mt-1 text-lg font-semibold text-bone-100">Fil d’actualité</h2>
             <p className="text-xs text-bone-400">Les dernières publications de la communauté</p>
           </div>
-          <button onClick={() => setTab('create')} className="rounded-full border border-gold-500/30 bg-ink-950/70 p-3 text-gold-300 transition hover:bg-ink-800" aria-label="Créer une publication"><PlusSquare size={20} /></button>
+          
         </div>
       </section>
       {posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <div className="rounded-2xl border border-gold-500/20 bg-ink-900/70 p-10 text-center text-sm text-bone-400">Aucune publication pour le moment.</div>}
