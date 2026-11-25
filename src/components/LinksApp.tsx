@@ -1294,7 +1294,7 @@ export default function LinksApp({ characterId }: Props) {
       {tab === "received" && (
         <>
           <div style={{ color: GOLD, fontWeight: 700, marginBottom: 13 }}>
-            Demandes adressées à {characterName(myCharacter)}
+            Demandes et contre-propositions reçues par {characterName(myCharacter)}
           </div>
 
           {receivedRequests.length === 0 &&
@@ -1937,7 +1937,11 @@ export default function LinksApp({ characterId }: Props) {
                           ? "Lien accepté"
                           : request?.status === "refused"
                             ? "Demande refusée"
-                            : "Demande en attente"}
+                            : latestProposalFor(request.id)
+                              ? latestProposalFor(request.id).proposed_by_character_id === characterId
+                                ? "Ta contre-proposition est en attente"
+                                : "Nouvelle contre-proposition reçue"
+                              : "Demande en attente"}
                       </div>
                     </div>
 
