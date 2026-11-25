@@ -13,7 +13,7 @@ type Character = {
   avatar_url: string | null;
   character_type: string | null;
 };
-type Media = { id?: string; media_url: string; media_type: 'image' | 'video'; thumbnail_url?: string | null; sort_order?: number };
+type Media = { id?: string; media_url: string; media_type: 'photo' | 'video'; thumbnail_url?: string | null; sort_order?: number };
 type Post = { id: string; character_id: string; image_url: string; caption: string | null; created_at: string; media: Media[]; tags: string[] };
 type Comment = { id: string; post_id: string; character_id: string; content: string; created_at: string; parent_comment_id: string | null };
 type Notification = { id: string; notification_type: string; title: string; body: string | null; related_id: string | null; actor_character_id: string | null; is_read: boolean; created_at: string };
@@ -26,7 +26,7 @@ const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/w
 
 const fullName = (c?: Character | null) => c ? [c.first_name, c.name].filter(Boolean).join(' ') || 'Profil sans nom' : 'Profil indisponible';
 const dateLabel = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
-const mediaType = (file: File): 'image' | 'video' => file.type.startsWith('video/') ? 'video' : 'image';
+const mediaType = (file: File): 'photo' | 'video' => file.type.startsWith('video/') ? 'video' : 'photo';
 
 function Avatar({ character, size = 'h-10 w-10' }: { character?: Character | null; size?: string }) {
   return character?.avatar_url
@@ -102,7 +102,7 @@ export default function InstagramApp({ characterId }: Props) {
       ]) : [{ data: [] }, { data: [] }];
       setPosts(rows.map(p => {
         const media = ((mediaRows.data || []) as (Media & { post_id: string })[]).filter(m => m.post_id === p.id).map(({ post_id: _p, ...m }) => m);
-        return { ...p, media: media.length ? media : [{ media_url: p.image_url, media_type: p.image_url.match(/\.(mp4|webm)(\?|$)/i) ? 'video' : 'image' }], tags: ((tagRows.data || []) as { post_id: string; tagged_character_id: string }[]).filter(t => t.post_id === p.id).map(t => t.tagged_character_id) };
+        return { ...p, media: media.length ? media : [{ media_url: p.image_url, media_type: p.image_url.match(/\.(mp4|webm)(\?|$)/i) ? 'video' : 'photo' }], tags: ((tagRows.data || []) as { post_id: string; tagged_character_id: string }[]).filter(t => t.post_id === p.id).map(t => t.tagged_character_id) };
       }));
     }
     if (likeRows.data) {
