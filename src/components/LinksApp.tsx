@@ -863,14 +863,15 @@ export default function LinksApp({ characterId }: Props) {
       .includes(linksSearch.toLowerCase().trim());
   });
 
-  const latestProposalFor = (requestId: string) =>
-    proposals
+  const latestProposalFor = (requestId: string) => {
+    const requestProposals = proposals
       .filter((proposal) => proposal.request_id === requestId)
       .sort(
         (a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      )
-      .at(-1) ?? null;
+      );
+    return requestProposals[requestProposals.length - 1] ?? null;
+  };
 
   const receivedRequests = requests.filter((request) => {
     const latestProposal = latestProposalFor(request.id);
@@ -1310,7 +1311,11 @@ export default function LinksApp({ characterId }: Props) {
             )}
 
           {receivedRequests.map((request) => {
-            const sender = characterMap.get(request.requester_character_id);
+            const senderId =
+              request.requester_character_id === characterId
+                ? request.target_character_id
+                : request.requester_character_id;
+            const sender = characterMap.get(senderId);
             const choices = (request.selected_links ?? []) as LinkChoice[];
             const latestProposal = latestProposalFor(request.id);
             const canRespond =
