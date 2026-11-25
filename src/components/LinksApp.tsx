@@ -327,6 +327,10 @@ export default function LinksApp({ characterId }: Props) {
   const [conversations, setConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
   const [changeRequests, setChangeRequests] = useState<any[]>([]);
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [counterTarget, setCounterTarget] = useState<any | null>(null);
+  const [counterLinks, setCounterLinks] = useState<LinkChoice[]>([]);
+  const [counterMessage, setCounterMessage] = useState("");
 
   const [selectedConversation, setSelectedConversation] = useState<any | null>(
     null,
@@ -427,11 +431,22 @@ export default function LinksApp({ characterId }: Props) {
       if (conversationsResult.error) throw conversationsResult.error;
       if (changeRequestsResult.error) throw changeRequestsResult.error;
 
+      const requestIds = (requestsResult.data ?? []).map((request: any) => request.id);
+      const proposalsResult = requestIds.length
+        ? await supabase
+            .from("link_request_proposals")
+            .select("*")
+            .in("request_id", requestIds)
+            .order("created_at", { ascending: true })
+        : { data: [], error: null };
+      if (proposalsResult.error) throw proposalsResult.error;
+
       setCharacters(charactersResult.data ?? []);
       setAnnouncements(announcementsResult.data ?? []);
       setRequests(requestsResult.data ?? []);
       setLinks(linksResult.data ?? []);
       setChangeRequests(changeRequestsResult.data ?? []);
+      setProposals(proposalsResult.data ?? []);
 
       const myConversations = (conversationsResult.data ?? []).filter(
         (conversation: any) => {
@@ -688,6 +703,66 @@ export default function LinksApp({ characterId }: Props) {
     await loadData();
   };
 
+  const submitCounterProposal = async () => {
+    if (!counterTarget || !counterLinks.length || !counterMessage.trim()) {
+      notify("Choisis au moins un lien et ajoute un message à ta contre-proposition.", true);
+      return;
+    }
+
+    const invalid = counterLinks.some(
+      (item) => item.category === "rivalry" && !item.reason?.trim(),
+    );
+    if (invalid) {
+      notify("Précise la raison de la rivalité ou des tensions.", true);
+      return;
+    }
+
+    const { error } = await supabase.rpc("submit_link_request_proposal", {
+      p_request_id: counterTarget.id,
+      p_character_id: characterId,
+      p_selected_links: counterLinks,
+      p_message: counterMessage.trim(),
+    });
+
+    if (error) {
+      notify(error.message, true);
+      return;
+    }
+
+    setCounterTarget(null);
+    setCounterLinks([]);
+    setCounterMessage("");
+    notify("Ta contre-proposition a été envoyée !");
+    await loadData();
+  };
+
+  const respondToProposal = async (proposal: any, accepted: boolean) => {
+    const reason = refusalReasons[proposal.id]?.trim() ?? "";
+    if (!accepted && !reason) {
+      notify("Tu dois expliquer pourquoi tu refuses cette contre-proposition.", true);
+      return;
+    }
+
+    const { error } = await supabase.rpc("respond_to_link_request_proposal", {
+      p_proposal_id: proposal.id,
+      p_character_id: characterId,
+      p_accept: accepted,
+      p_refusal_reason: accepted ? null : reason,
+    });
+
+    if (error) {
+      notify(error.message, true);
+      return;
+    }
+
+    notify(
+      accepted
+        ? "Contre-proposition acceptée ! Le lien est maintenant ajouté à vos carnets."
+        : "Contre-proposition refusée.",
+    );
+    await loadData();
+  };
+
   const sendMessage = async () => {
     if (!selectedConversation || !messageText.trim()) return;
 
@@ -788,9 +863,22 @@ export default function LinksApp({ characterId }: Props) {
       .includes(linksSearch.toLowerCase().trim());
   });
 
-  const receivedRequests = requests.filter(
-    (request) => request.target_character_id === characterId,
-  );
+  const latestProposalFor = (requestId: string) =>
+    proposals
+      .filter((proposal) => proposal.request_id === requestId)
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      )
+      .at(-1) ?? null;
+
+  const receivedRequests = requests.filter((request) => {
+    const latestProposal = latestProposalFor(request.id);
+    if (latestProposal?.status === "pending") {
+      return latestProposal.proposed_by_character_id !== characterId;
+    }
+    return request.target_character_id === characterId;
+  });
 
   // Demandes de modification ou de suppression reçues pour les liens de ce personnage.
   const receivedChangeRequests = changeRequests.filter((changeRequest) => {
@@ -1224,6 +1312,16 @@ export default function LinksApp({ characterId }: Props) {
           {receivedRequests.map((request) => {
             const sender = characterMap.get(request.requester_character_id);
             const choices = (request.selected_links ?? []) as LinkChoice[];
+            const latestProposal = latestProposalFor(request.id);
+            const canRespond =
+              request.status === "pending" &&
+              (latestProposal
+                ? latestProposal.status === "pending" &&
+                  latestProposal.proposed_by_character_id !== characterId
+                : request.target_character_id === characterId);
+            const responseKey = latestProposal?.status === "pending"
+              ? latestProposal.id
+              : request.id;
 
             return (
               <div key={request.id} style={panelStyle}>
@@ -1260,7 +1358,9 @@ export default function LinksApp({ characterId }: Props) {
                     }}
                   >
                     {request.status === "pending"
-                      ? "En attente"
+                      ? latestProposal?.status === "pending"
+                        ? "Contre-proposition reçue"
+                        : "En attente"
                       : request.status === "accepted"
                         ? "Acceptée"
                         : "Refusée"}
@@ -1297,29 +1397,46 @@ export default function LinksApp({ characterId }: Props) {
                   </p>
                 )}
 
-                {request.status === "pending" && (
+                {latestProposal?.status === "pending" && (
+                  <div style={{ ...panelStyle, marginTop: 13, marginBottom: 0 }}>
+                    <div style={{ color: GOLD, fontWeight: 700, marginBottom: 8 }}>
+                      Contre-proposition de {characterName(characterMap.get(latestProposal.proposed_by_character_id))}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {(latestProposal.selected_links ?? []).map((choice: LinkChoice, index: number) => (
+                        <span
+                          key={`${choice.type}-counter-${index}`}
+                          style={{ border: `1px solid ${BORDER}`, borderRadius: 20, padding: "5px 9px", fontSize: 11 }}
+                        >
+                          {choice.type}{choice.reason ? ` — ${choice.reason}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                    <p style={{ color: "#ddd5c8", whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                      {latestProposal.message}
+                    </p>
+                  </div>
+                )}
+
+                {canRespond && (
                   <div style={{ marginTop: 14, display: "grid", gap: 9 }}>
                     <TextArea
-                      value={refusalReasons[request.id] ?? ""}
+                      value={refusalReasons[responseKey] ?? ""}
                       onChange={(value) =>
                         setRefusalReasons((current) => ({
                           ...current,
-                          [request.id]: value,
+                          [responseKey]: value,
                         }))
                       }
-                      placeholder="Motif obligatoire si tu refuses la demande..."
+                      placeholder="Motif obligatoire si tu refuses..."
                     />
 
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        flexWrap: "wrap",
-                      }}
-                    >
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <Button
                         onClick={() =>
-                          respondToRequest(request, "accepted")
+                          latestProposal?.status === "pending"
+                            ? respondToProposal(latestProposal, true)
+                            : respondToRequest(request, "accepted")
                         }
                       >
                         Accepter
@@ -1328,11 +1445,46 @@ export default function LinksApp({ characterId }: Props) {
                       <Button
                         secondary
                         onClick={() =>
-                          respondToRequest(request, "refused")
+                          latestProposal?.status === "pending"
+                            ? respondToProposal(latestProposal, false)
+                            : respondToRequest(request, "refused")
                         }
                       >
                         Refuser
                       </Button>
+
+                      <Button
+                        secondary
+                        onClick={() => {
+                          setCounterTarget(request);
+                          setCounterLinks([]);
+                          setCounterMessage("");
+                        }}
+                      >
+                        Faire une contre-proposition
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {counterTarget?.id === request.id && (
+                  <div style={{ ...panelStyle, marginTop: 13, marginBottom: 0 }}>
+                    <h3 style={{ color: GOLD, marginTop: 0 }}>Ta contre-proposition</h3>
+                    <p style={{ color: "#aaa18f", fontSize: 12 }}>
+                      Choisis les liens que tu souhaites réellement proposer, puis explique ton idée.
+                    </p>
+                    <ChoiceSelector selected={counterLinks} onChange={setCounterLinks} />
+                    <div style={{ color: GOLD, fontWeight: 700, margin: "14px 0 7px" }}>
+                      Ta réponse (obligatoire)
+                    </div>
+                    <TextArea
+                      value={counterMessage}
+                      onChange={setCounterMessage}
+                      placeholder="Explique ta contre-proposition..."
+                    />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                      <Button onClick={submitCounterProposal}>Envoyer la contre-proposition</Button>
+                      <Button secondary onClick={() => setCounterTarget(null)}>Annuler</Button>
                     </div>
                   </div>
                 )}
@@ -1881,6 +2033,51 @@ export default function LinksApp({ characterId }: Props) {
                   );
                 })}
               </div>
+
+              {proposals.filter((proposal) => {
+                const linkedRequest = Array.isArray(selectedConversation.link_requests)
+                  ? selectedConversation.link_requests[0]
+                  : selectedConversation.link_requests;
+                return proposal.request_id === linkedRequest?.id;
+              }).length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: GOLD, fontWeight: 700, marginBottom: 9 }}>
+                    Historique des contre-propositions
+                  </div>
+                  {proposals
+                    .filter((proposal) => {
+                      const linkedRequest = Array.isArray(selectedConversation.link_requests)
+                        ? selectedConversation.link_requests[0]
+                        : selectedConversation.link_requests;
+                      return proposal.request_id === linkedRequest?.id;
+                    })
+                    .map((proposal) => (
+                      <div key={proposal.id} style={{ ...panelStyle, marginBottom: 8 }}>
+                        <div style={{ color: GOLD, fontWeight: 700, fontSize: 12 }}>
+                          {characterName(characterMap.get(proposal.proposed_by_character_id))}
+                          {" · "}
+                          {proposal.status === "pending"
+                            ? "En attente"
+                            : proposal.status === "accepted"
+                              ? "Acceptée"
+                              : proposal.status === "refused"
+                                ? "Refusée"
+                                : "Remplacée par une nouvelle proposition"}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                          {(proposal.selected_links ?? []).map((choice: LinkChoice, index: number) => (
+                            <span key={`${proposal.id}-${index}`} style={{ border: `1px solid ${BORDER}`, borderRadius: 20, padding: "4px 8px", fontSize: 11 }}>
+                              {choice.type}
+                            </span>
+                          ))}
+                        </div>
+                        <p style={{ whiteSpace: "pre-wrap", color: "#ddd5c8", marginBottom: 0 }}>
+                          {proposal.message}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              )}
 
               <TextArea
                 value={messageText}
