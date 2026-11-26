@@ -1,0 +1,51 @@
+name: Register Discord Activity launch command
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  register-command:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update the Activity entry point command
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_APP_ID: "1569669261331406858"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DISCORD_BOT_TOKEN" ]; then
+            echo "::error::Missing repository secret DISCORD_BOT_TOKEN"
+            exit 1
+          fi
+
+          API="https://discord.com/api/v10/applications/$DISCORD_APP_ID/commands"
+          BODY='{"name":"launch","type":4,"description":"Lancer Sterling Campus","handler":2,"integration_types":[0,1],"contexts":[0,1,2]}'
+
+          COMMANDS=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            "$API")
+
+          EXISTING_ID=$(printf '%s' "$COMMANDS" | jq -r '.[] | select(.name == "launch" and .type == 4) | .id' | head -n 1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            RESULT=$(curl --fail-with-body --silent --show-error \
+              -X PATCH "$API/$EXISTING_ID" \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$BODY")
+          else
+            RESULT=$(curl --fail-with-body --silent --show-error \
+              -X POST "$API" \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$BODY")
+          fi
+
+          printf '%s' "$RESULT" | jq '{name, type, handler, id}'
+          printf '%s' "$RESULT" | jq -e '.name == "launch" and .type == 4 and .handler == 2' >/dev/null
+          echo "Discord Activity entry point command registered successfully."
