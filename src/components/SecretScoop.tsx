@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getDiscordCompatibleImageUrl } from '@/lib/imageUrls';
@@ -15,11 +15,23 @@ type ScoopPost = {
   created_at: string;
 };
 
+const SCOOP_REACTIONS = [
+  { id: 'like', emoji: '❤️', label: "J'aime" },
+  { id: 'dislike', emoji: '👎', label: "J'aime pas" },
+  { id: 'laugh', emoji: '😂', label: 'Ça me fait rire' },
+  { id: 'shock', emoji: '😱', label: 'Choquant' },
+  { id: 'watch', emoji: '👀', label: 'Je surveille' },
+  { id: 'fire', emoji: '🔥', label: "C'est chaud" },
+  { id: 'disappointed', emoji: '💔', label: 'Ça me déçoit' },
+] as const;
+
+type ReactionType = typeof SCOOP_REACTIONS[number]['id'];
+
 type ScoopReaction = {
   id: string;
   post_id: string;
   character_id: string;
-  reaction_type: 'like' | 'dislike';
+  reaction_type: ReactionType;
 };
 
 type ScoopMessage = {
@@ -75,6 +87,9 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   const [tab, setTab] = useState<Tab>(adminOnly ? 'admin' : 'feed');
   const [posts, setPosts] = useState<ScoopPost[]>([]);
   const [reactions, setReactions] = useState<ScoopReaction[]>([]);
+  const [activeReactionDetails, setActiveReactionDetails] = useState<{ postId: string; type: ReactionType } | null>(null);
+  const reactionHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reactionHoldTriggered = useRef(false);
   const [messages, setMessages] = useState<ScoopMessage[]>([]);
   const [characters, setCharacters] = useState<ScoopCharacter[]>([]);
   const [submissions, setSubmissions] = useState<ScoopSubmission[]>([]);
@@ -332,7 +347,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
     }
   };
 
-  const toggleReaction = async (postId: string, reactionType: 'like' | 'dislike') => {
+  const toggleReaction = async (postId: string, reactionType: ReactionType) => {
     if (!characterId || adminOnly) return;
     const current = reactions.find(
       (reaction) => reaction.post_id === postId && reaction.character_id === characterId
@@ -617,6 +632,9 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
             <p className="text-xs text-bone-500 italic">
               Don't hide. I see you.
             </p>
+            <p className="mt-1 text-[9px] leading-relaxed text-bone-500">
+              {SCOOP_REACTIONS.map((reaction) => `${reaction.emoji} ${reaction.label}`).join('  ·  ')}
+            </p>
           </div>
 
           {isAdmin && adminOnly && (
@@ -747,34 +765,83 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                 )}
 
                 {!adminOnly && characterId && (
-                  <div className="flex items-center gap-3 border-t border-gold-500/10 pt-3">
-                    {(['like', 'dislike'] as const).map((reactionType) => {
-                      const count = reactions.filter(
-                        (reaction) => reaction.post_id === post.id && reaction.reaction_type === reactionType
-                      ).length;
-                      const selected = reactions.some(
-                        (reaction) => reaction.post_id === post.id &&
-                          reaction.character_id === characterId &&
-                          reaction.reaction_type === reactionType
-                      );
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-gold-500/10 pt-3">
+                      {SCOOP_REACTIONS.map((reactionType) => {
+                        const matchingReactions = reactions.filter(
+                          (reaction) => reaction.post_id === post.id && reaction.reaction_type === reactionType.id
+                        );
+                        const selected = matchingReactions.some(
+                          (reaction) => reaction.character_id === characterId
+                        );
+                        return (
+                          <button
+                            key={reactionType.id}
+                            type="button"
+                            onPointerDown={() => {
+                              reactionHoldTriggered.current = false;
+                              if (reactionHoldTimer.current) clearTimeout(reactionHoldTimer.current);
+                              reactionHoldTimer.current = setTimeout(() => {
+                                reactionHoldTriggered.current = true;
+                                setActiveReactionDetails({ postId: post.id, type: reactionType.id });
+                              }, 550);
+                            }}
+                            onPointerUp={() => {
+                              if (reactionHoldTimer.current) clearTimeout(reactionHoldTimer.current);
+                              reactionHoldTimer.current = null;
+                            }}
+                            onPointerLeave={() => {
+                              if (reactionHoldTimer.current) clearTimeout(reactionHoldTimer.current);
+                              reactionHoldTimer.current = null;
+                            }}
+                            onPointerCancel={() => {
+                              if (reactionHoldTimer.current) clearTimeout(reactionHoldTimer.current);
+                              reactionHoldTimer.current = null;
+                            }}
+                            onContextMenu={(event) => event.preventDefault()}
+                            onClick={() => {
+                              if (reactionHoldTriggered.current) {
+                                reactionHoldTriggered.current = false;
+                                return;
+                              }
+                              void toggleReaction(post.id, reactionType.id);
+                            }}
+                            aria-pressed={selected}
+                            aria-label={`${reactionType.label}, ${matchingReactions.length} réaction(s). Maintenir appuyé pour voir les personnages.`}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm transition touch-manipulation select-none ${selected
+                              ? 'border-gold-400/70 bg-gold-500/15 text-gold-300'
+                              : 'border-gold-500/20 text-bone-400 hover:border-gold-400/50 hover:text-bone-200'}`}
+                          >
+                            <span>{reactionType.emoji}</span>
+                            <span className="text-xs">{matchingReactions.length}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {activeReactionDetails?.postId === post.id && (() => {
+                      const reactionType = SCOOP_REACTIONS.find((item) => item.id === activeReactionDetails.type);
+                      const names = reactions
+                        .filter((reaction) => reaction.post_id === post.id && reaction.reaction_type === activeReactionDetails.type)
+                        .map((reaction) => displayName(reaction.character_id));
                       return (
-                        <button
-                          key={reactionType}
-                          type="button"
-                          onClick={() => void toggleReaction(post.id, reactionType)}
-                          aria-pressed={selected}
-                          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${selected
-                            ? reactionType === 'like'
-                              ? 'border-pink-400/60 bg-pink-500/15 text-pink-300'
-                              : 'border-red-400/60 bg-red-500/15 text-red-300'
-                            : 'border-gold-500/20 text-bone-400 hover:border-gold-400/50 hover:text-bone-200'}`}
-                        >
-                          <span>{reactionType === 'like' ? '❤️' : '👎'}</span>
-                          <span>{count}</span>
-                        </button>
+                        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-5" onClick={() => setActiveReactionDetails(null)}>
+                          <div className="w-full max-w-sm rounded-xl border border-gold-500/40 bg-ink-900 p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <h3 className="text-sm font-semibold text-gold-300">{reactionType?.emoji} {reactionType?.label}</h3>
+                              <button type="button" onClick={() => setActiveReactionDetails(null)} className="rounded-lg px-2 py-1 text-bone-400">✕</button>
+                            </div>
+                            {names.length ? (
+                              <div className="max-h-64 space-y-2 overflow-y-auto">
+                                {names.map((name, index) => <p key={index} className="rounded-lg bg-ink-950 px-3 py-2 text-sm text-bone-100">{name}</p>)}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-bone-500">Personne n'a encore choisi cette réaction.</p>
+                            )}
+                          </div>
+                        </div>
                       );
-                    })}
-                  </div>
+                    })()}
+                  </>
                 )}
 
                 <div className="border-t border-gold-500/10 pt-3 text-center">
