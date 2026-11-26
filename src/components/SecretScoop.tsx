@@ -88,6 +88,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [postType, setPostType] = useState<'verified' | 'rumor'>('rumor');
   const [postTargets, setPostTargets] = useState<string[]>([]);
+  const [postTargetMode, setPostTargetMode] = useState<'selected' | 'none'>('selected');
+  const [postTargetSearch, setPostTargetSearch] = useState('');
   const [postCategories, setPostCategories] = useState<string[]>([]);
   const [postContent, setPostContent] = useState('');
   const [submissionMode, setSubmissionMode] = useState<'character' | 'player'>('character');
@@ -96,6 +98,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editPostType, setEditPostType] = useState<'verified' | 'rumor'>('rumor');
   const [editTargets, setEditTargets] = useState<string[]>([]);
+  const [editTargetMode, setEditTargetMode] = useState<'selected' | 'none'>('selected');
+  const [editTargetSearch, setEditTargetSearch] = useState('');
   const [editCategories, setEditCategories] = useState<string[]>([]);
   const [editContent, setEditContent] = useState('');
   const [editPostImage, setEditPostImage] = useState<File | null>(null);
@@ -316,6 +320,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
       setPostContent('');
       setPostImage(null);
       setPostTargets([]);
+      setPostTargetMode('selected');
+      setPostTargetSearch('');
       setPostCategories([]);
       await loadData();
       notify('Publication mise en ligne.');
@@ -985,17 +991,24 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                   </button>
                 </div>
 
-                <div className="space-y-2 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
-                  <p className="text-xs uppercase tracking-wider text-gold-400">Personnages ciblés (plusieurs choix possibles)</p>
-                  <div className="max-h-48 space-y-2 overflow-y-auto">
-                    {characters.map((character) => (
-                      <label key={character.id} className="flex items-center gap-2 text-sm text-bone-200">
-                        <input type="checkbox" checked={postTargets.includes(character.id)} onChange={(event) => setPostTargets((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} className="accent-yellow-500" />
-                        {character.first_name} {character.name}
-                      </label>
-                    ))}
+                <div className="space-y-3 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                  <p className="text-xs uppercase tracking-wider text-gold-400">Personnages ciblés</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setPostTargetMode('selected')} className={`rounded-lg border px-2 py-3 text-[11px] font-medium transition-colors ${postTargetMode === 'selected' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 text-bone-400'}`}>Identifier un ou des personnages</button>
+                    <button type="button" onClick={() => { setPostTargetMode('none'); setPostTargets([]); setPostTargetSearch(''); }} className={`rounded-lg border px-2 py-3 text-[11px] font-medium transition-colors ${postTargetMode === 'none' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 text-bone-400'}`}>Ne sélectionner personne</button>
                   </div>
-                  {postTargets.length > 0 && <p className="text-[10px] text-gold-300">{postTargets.length} personnage(s) sélectionné(s)</p>}
+                  {postTargetMode === 'selected' && <>
+                    <input type="search" value={postTargetSearch} onChange={(event) => setPostTargetSearch(event.target.value)} placeholder="Rechercher un prénom ou un nom..." className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100 placeholder:text-bone-600" />
+                    <div className="max-h-48 space-y-2 overflow-y-auto">
+                      {characters.filter((character) => `${character.first_name || ''} ${character.name}`.toLowerCase().includes(postTargetSearch.trim().toLowerCase())).map((character) => {
+                        const selected = postTargets.includes(character.id);
+                        return <button key={character.id} type="button" onClick={() => setPostTargets((current) => selected ? current.filter((id) => id !== character.id) : [...current, character.id])} className={`w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${selected ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 bg-ink-950 text-bone-200 hover:border-gold-500/40'}`}>
+                          <span className="flex items-center justify-between gap-2"><span>{character.first_name} {character.name}</span><span className="text-xs">{selected ? '✓ Sélectionné' : '＋'}</span></span>
+                        </button>;
+                      })}
+                    </div>
+                    {postTargets.length > 0 && <div className="space-y-2"><p className="text-[10px] text-gold-300">{postTargets.length} personnage(s) sélectionné(s)</p><div className="flex flex-wrap gap-2">{postTargets.map((id) => <button key={id} type="button" onClick={() => setPostTargets((current) => current.filter((item) => item !== id))} className="rounded-full border border-gold-400/40 bg-gold-500/10 px-3 py-1.5 text-xs text-gold-300">{displayName(id)} ×</button>)}</div></div>}
+                  </>}
                 </div>
 
                 <div className="space-y-2 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
@@ -1124,7 +1137,10 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                             <button type="button" onClick={() => {
                               setEditingPostId(post.id);
                               setEditPostType(post.post_type);
-                              setEditTargets(post.target_character_ids?.length ? post.target_character_ids : post.target_character_id ? [post.target_character_id] : []);
+                              const currentTargets = post.target_character_ids?.length ? post.target_character_ids : post.target_character_id ? [post.target_character_id] : [];
+                              setEditTargets(currentTargets);
+                              setEditTargetMode(currentTargets.length ? 'selected' : 'none');
+                              setEditTargetSearch('');
                               setEditCategories(post.categories || []);
                               setEditContent(post.content.replace(SIGNATURE, '').trim());
                               setEditPostImage(null);
@@ -1165,9 +1181,22 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                                 <button type="button" onClick={() => setEditPostType('rumor')} className={`rounded-lg border py-2 text-xs ${editPostType === 'rumor' ? 'border-red-400 text-red-300' : 'border-white/10 text-bone-500'}`}>Rumeur</button>
                               </div>
                               <textarea value={editContent} onChange={(event) => setEditContent(event.target.value)} rows={5} required className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100" />
-                              <p className="text-xs text-gold-400">Personnages ciblés</p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {characters.map((character) => <label key={character.id} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={editTargets.includes(character.id)} onChange={(event) => setEditTargets((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} />{character.first_name} {character.name}</label>)}
+                              <div className="space-y-3 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                                <p className="text-xs uppercase tracking-wider text-gold-400">Personnages ciblés</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button type="button" onClick={() => setEditTargetMode('selected')} className={`rounded-lg border px-2 py-3 text-[11px] ${editTargetMode === 'selected' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 text-bone-400'}`}>Identifier un ou des personnages</button>
+                                  <button type="button" onClick={() => { setEditTargetMode('none'); setEditTargets([]); setEditTargetSearch(''); }} className={`rounded-lg border px-2 py-3 text-[11px] ${editTargetMode === 'none' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 text-bone-400'}`}>Ne sélectionner personne</button>
+                                </div>
+                                {editTargetMode === 'selected' && <>
+                                  <input type="search" value={editTargetSearch} onChange={(event) => setEditTargetSearch(event.target.value)} placeholder="Rechercher un prénom ou un nom..." className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100 placeholder:text-bone-600" />
+                                  <div className="max-h-48 space-y-2 overflow-y-auto">
+                                    {characters.filter((character) => `${character.first_name || ''} ${character.name}`.toLowerCase().includes(editTargetSearch.trim().toLowerCase())).map((character) => {
+                                      const selected = editTargets.includes(character.id);
+                                      return <button key={character.id} type="button" onClick={() => setEditTargets((current) => selected ? current.filter((id) => id !== character.id) : [...current, character.id])} className={`w-full rounded-lg border px-3 py-2.5 text-left text-xs ${selected ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-white/10 bg-ink-950 text-bone-200'}`}><span className="flex items-center justify-between gap-2"><span>{character.first_name} {character.name}</span><span>{selected ? '✓ Sélectionné' : '＋'}</span></span></button>;
+                                    })}
+                                  </div>
+                                  {editTargets.length > 0 && <div className="space-y-2"><p className="text-[10px] text-gold-300">{editTargets.length} personnage(s) sélectionné(s)</p><div className="flex flex-wrap gap-2">{editTargets.map((id) => <button key={id} type="button" onClick={() => setEditTargets((current) => current.filter((item) => item !== id))} className="rounded-full border border-gold-400/40 bg-gold-500/10 px-3 py-1.5 text-xs text-gold-300">{displayName(id)} ×</button>)}</div></div>}
+                                </>}
                               </div>
                               <p className="text-xs text-gold-400">Catégories</p>
                               <div className="grid grid-cols-2 gap-2">
