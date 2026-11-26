@@ -23,6 +23,7 @@ const SCOOP_REACTIONS = [
   { id: 'watch', emoji: '👀', label: 'Je surveille' },
   { id: 'fire', emoji: '🔥', label: "C'est chaud" },
   { id: 'disappointed', emoji: '💔', label: 'Ça me déçoit' },
+  { id: 'angry', emoji: '😡', label: 'Énervé' },
 ] as const;
 
 type ReactionType = typeof SCOOP_REACTIONS[number]['id'];
