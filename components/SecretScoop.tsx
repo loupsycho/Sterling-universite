@@ -685,7 +685,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                         : 'text-red-300 border-red-400/30 bg-red-500/10'
                     }`}
                   >
-                    {post.post_type === 'verified' ? '✦ Vérifié' : 'Rum eur'}
+                    {post.post_type === 'verified' ? '✦ Vérifié' : 'Rumeur'}
                   </span>
 
                   <span className="text-[10px] text-bone-500">
