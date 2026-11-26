@@ -1,1 +1,0 @@
-revoke all on function public.notify_new_link_request_proposal() from public, anon, authenticated;

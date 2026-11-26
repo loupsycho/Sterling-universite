@@ -8,6 +8,8 @@ type ScoopPost = {
   id: string;
   post_type: 'verified' | 'rumor';
   target_character_id: string | null;
+  target_character_ids?: string[] | null;
+  categories?: string[] | null;
   content: string;
   image_url: string | null;
   created_at: string;
@@ -36,6 +38,8 @@ type ScoopCharacter = {
   name: string;
   first_name: string | null;
   status?: string;
+  avatar_url?: string | null;
+  player_id?: string;
 };
 
 type ScoopSubmission = {
@@ -44,6 +48,7 @@ type ScoopSubmission = {
   content: string;
   image_url: string | null;
   status: 'pending' | 'approved' | 'rejected';
+  submission_source?: 'character' | 'player';
   created_at: string;
 };
 
@@ -55,6 +60,16 @@ interface SecretScoopProps {
 }
 
 const SIGNATURE = "Don't hide. I see you.\nTHE SECRET SCOOP\nYour secrets. Our business.";
+
+const SCOOP_CATEGORIES = [
+  { id: 'HOT', label: '♥ HOT' },
+  { id: 'RIVALITÉ', label: '⚔ RIVALITÉ' },
+  { id: 'ÉTUDES', label: '✎ ÉTUDES' },
+  { id: 'CAMPUS', label: '♛ CAMPUS' },
+  { id: 'SECRETS', label: '◈ SECRETS' },
+  { id: 'SOCIAL', label: '♡ SOCIAL' },
+  { id: 'AUTRE', label: '✧ AUTRE' },
+] as const;
 
 export default function SecretScoop({ characterId, adminOnly = false }: SecretScoopProps) {
   const [tab, setTab] = useState<Tab>(adminOnly ? 'admin' : 'feed');
@@ -72,9 +87,18 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   const [newMessageSearch, setNewMessageSearch] = useState('');
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [postType, setPostType] = useState<'verified' | 'rumor'>('rumor');
-  const [postTarget, setPostTarget] = useState('');
+  const [postTargets, setPostTargets] = useState<string[]>([]);
+  const [postCategories, setPostCategories] = useState<string[]>([]);
   const [postContent, setPostContent] = useState('');
+  const [submissionMode, setSubmissionMode] = useState<'character' | 'player'>('character');
+  const [submissionCharacterId, setSubmissionCharacterId] = useState(characterId);
   const [submissionContent, setSubmissionContent] = useState('');
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editPostType, setEditPostType] = useState<'verified' | 'rumor'>('rumor');
+  const [editTargets, setEditTargets] = useState<string[]>([]);
+  const [editCategories, setEditCategories] = useState<string[]>([]);
+  const [editContent, setEditContent] = useState('');
+  const [editPostImage, setEditPostImage] = useState<File | null>(null);
   const [messageContent, setMessageContent] = useState('');
 
   const [postImage, setPostImage] = useState<File | null>(null);
@@ -173,7 +197,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
         supabase
           .from('characters')
-          .select('id, name, first_name, status'),
+          .select('id, name, first_name, status, avatar_url, player_id'),
 
         admin
           ? supabase
@@ -241,6 +265,10 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
   const sendPost = async (event: FormEvent) => {
     event.preventDefault();
     if (!postContent.trim()) return;
+    if (postCategories.length === 0) {
+      setError('Sélectionne au moins une catégorie.');
+      return;
+    }
 
     setSending(true);
     setError('');
@@ -256,7 +284,9 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
         .from('scoop_posts')
         .insert({
           post_type: postType,
-          target_character_id: postTarget || null,
+          target_character_id: postTargets[0] || null,
+          target_character_ids: postTargets,
+          categories: postCategories,
           content: `${postContent.trim()}\n\n${SIGNATURE}`,
           image_url: imageUrl,
           created_by: (await supabase.auth.getUser()).data.user?.id,
@@ -285,7 +315,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
       setPostContent('');
       setPostImage(null);
-      setPostTarget('');
+      setPostTargets([]);
+      setPostCategories([]);
       await loadData();
       notify('Publication mise en ligne.');
     } catch (err) {
@@ -335,7 +366,8 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
   const submitSecret = async (event: FormEvent) => {
     event.preventDefault();
-    if (!submissionContent.trim() || !characterId) return;
+    const selectedCharacterId = submissionMode === 'player' ? submissionCharacterId : characterId;
+    if (!submissionContent.trim() || !selectedCharacterId) return;
 
     setSending(true);
     setError('');
@@ -346,14 +378,15 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
       if (submissionImage) {
         imagePath = await uploadPrivateImage(
           submissionImage,
-          characterId
+          selectedCharacterId
         );
       }
 
       const { error: insertError } = await supabase
         .from('scoop_submissions')
         .insert({
-          character_id: characterId,
+          character_id: selectedCharacterId,
+          submission_source: submissionMode,
           content: submissionContent.trim(),
           image_url: imagePath,
           status: 'pending',
@@ -363,6 +396,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
 
       setSubmissionContent('');
       setSubmissionImage(null);
+      setSubmissionMode('character');
       notify('Ta proposition a été envoyée à l’administration.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Envoi impossible.');
@@ -497,7 +531,9 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
       .insert({
         post_type: 'rumor',
         content: `${submission.content}\n\n${SIGNATURE}`,
-        target_character_id: null,
+        target_character_id: submission.submission_source === 'player' ? submission.character_id : null,
+        target_character_ids: submission.submission_source === 'player' ? [submission.character_id] : [],
+        categories: ['AUTRE'],
         image_url: null,
         created_by: (await supabase.auth.getUser()).data.user?.id,
       });
@@ -657,11 +693,40 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                   </span>
                 </div>
 
-                {post.target_character_id && (
-                  <p className="text-xs text-gold-400">
-                    Cible : {displayName(post.target_character_id)}
-                  </p>
-                )}
+                {(() => {
+                  const targetIds = post.target_character_ids?.length
+                    ? post.target_character_ids
+                    : post.target_character_id ? [post.target_character_id] : [];
+                  const targets = targetIds
+                    .map((id) => characters.find((character) => character.id === id))
+                    .filter((character): character is ScoopCharacter => Boolean(character));
+                  return targets.length > 0 ? (
+                    <div className="flex flex-wrap gap-3 border-y border-gold-500/10 py-3">
+                      {targets.map((target) => (
+                        <div key={target.id} className="flex w-16 flex-col items-center gap-1 text-center">
+                          <div className="h-12 w-12 overflow-hidden rounded-full border border-gold-400/50 bg-ink-800">
+                            {target.avatar_url ? (
+                              <img src={getDiscordCompatibleImageUrl(target.avatar_url)} alt={displayName(target.id)} className="h-full w-full object-cover" />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-gold-400">✦</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] leading-tight text-gold-300">{displayName(target.id)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+
+                {post.categories?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {post.categories.map((category) => (
+                      <span key={category} className="rounded-full border border-gold-500/30 bg-gold-500/10 px-2.5 py-1 text-[9px] uppercase tracking-wider text-gold-300">
+                        {SCOOP_CATEGORIES.find((item) => item.id === category)?.label || category}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
 
                 <p className="text-sm leading-7 whitespace-pre-wrap text-bone-200">
                   {post.content}
@@ -832,6 +897,27 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
               </p>
             </div>
 
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setSubmissionMode('character')} className={`rounded-lg border px-2 py-3 text-xs uppercase tracking-wider ${submissionMode === 'character' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-gold-500/20 text-bone-500'}`}>
+                En tant que personnage
+              </button>
+              <button type="button" onClick={() => setSubmissionMode('player')} className={`rounded-lg border px-2 py-3 text-xs uppercase tracking-wider ${submissionMode === 'player' ? 'border-gold-400 bg-gold-500/15 text-gold-300' : 'border-gold-500/20 text-bone-500'}`}>
+                En tant que joueur
+              </button>
+            </div>
+
+            {submissionMode === 'player' && (
+              <div className="space-y-2 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                <label className="block text-xs text-gold-400">Personnage concerné par ton idée</label>
+                <select value={submissionCharacterId} onChange={(event) => setSubmissionCharacterId(event.target.value)} className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100">
+                  {characters.filter((item) => item.player_id === characters.find((character) => character.id === characterId)?.player_id).map((item) => (
+                    <option key={item.id} value={item.id}>{item.first_name} {item.name}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-bone-500">Cette suggestion est envoyée hors RP à l'administration et ne sera pas publiée automatiquement.</p>
+              </div>
+            )}
+
             <form onSubmit={submitSecret} className="space-y-4">
               <textarea
                 value={submissionContent}
@@ -899,18 +985,30 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                   </button>
                 </div>
 
-                <select
-                  value={postTarget}
-                  onChange={(event) => setPostTarget(event.target.value)}
-                  className="w-full bg-ink-900 border border-gold-500/30 rounded-lg p-3 text-sm"
-                >
-                  <option value="">Aucune cible particulière</option>
-                  {characters.map((character) => (
-                    <option key={character.id} value={character.id}>
-                      {character.first_name} {character.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="space-y-2 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                  <p className="text-xs uppercase tracking-wider text-gold-400">Personnages ciblés (plusieurs choix possibles)</p>
+                  <div className="max-h-48 space-y-2 overflow-y-auto">
+                    {characters.map((character) => (
+                      <label key={character.id} className="flex items-center gap-2 text-sm text-bone-200">
+                        <input type="checkbox" checked={postTargets.includes(character.id)} onChange={(event) => setPostTargets((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} className="accent-yellow-500" />
+                        {character.first_name} {character.name}
+                      </label>
+                    ))}
+                  </div>
+                  {postTargets.length > 0 && <p className="text-[10px] text-gold-300">{postTargets.length} personnage(s) sélectionné(s)</p>}
+                </div>
+
+                <div className="space-y-2 rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                  <p className="text-xs uppercase tracking-wider text-gold-400">Catégories (plusieurs choix possibles)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SCOOP_CATEGORIES.map((category) => (
+                      <label key={category.id} className="flex items-center gap-2 text-xs text-bone-200">
+                        <input type="checkbox" checked={postCategories.includes(category.id)} onChange={(event) => setPostCategories((current) => event.target.checked ? [...current, category.id] : current.filter((id) => id !== category.id))} className="accent-yellow-500" />
+                        {category.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
                 <textarea
                   value={postContent}
@@ -960,6 +1058,7 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                   className="rounded-lg border border-gold-500/20 bg-ink-900 p-3 mb-3 space-y-3"
                 >
                   <p className="text-xs text-gold-400">
+                    {submission.submission_source === 'player' ? 'Suggestion du joueur · ' : 'Secret envoyé en personnage · '}
                     {displayName(submission.character_id)}
                   </p>
 
@@ -1002,6 +1101,92 @@ export default function SecretScoop({ characterId, adminOnly = false }: SecretSc
                   </div>
                 </article>
               ))}
+            </div>
+
+            <div className="border-t border-gold-500/20 pt-5">
+              <h2 className="font-serif text-lg text-gold-400 mb-3">Archives des publications</h2>
+              <div className="space-y-2">
+                {Object.entries(posts.reduce<Record<string, ScoopPost[]>>((groups, post) => {
+                  const date = new Date(post.created_at).toLocaleDateString('fr-FR');
+                  (groups[date] ||= []).push(post);
+                  return groups;
+                }, {})).map(([date, datedPosts]) => (
+                  <details key={date} className="rounded-lg border border-gold-500/20 bg-ink-900 p-3">
+                    <summary className="cursor-pointer text-sm text-gold-300">{date} · {datedPosts.length} publication(s)</summary>
+                    <div className="mt-3 space-y-3">
+                      {datedPosts.map((post) => (
+                        <div key={post.id} className="rounded-lg border border-white/10 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs text-bone-300">{post.content.replace(SIGNATURE, '').trim().slice(0, 130)}{post.content.replace(SIGNATURE, '').trim().length > 130 ? '…' : ''}</p>
+                              <p className="mt-1 text-[10px] text-bone-500">{post.post_type === 'verified' ? 'Vérifié' : 'Rumeur'} · {(post.target_character_ids?.length ? post.target_character_ids : post.target_character_id ? [post.target_character_id] : []).map(displayName).join(', ') || 'Sans cible'}</p>
+                            </div>
+                            <button type="button" onClick={() => {
+                              setEditingPostId(post.id);
+                              setEditPostType(post.post_type);
+                              setEditTargets(post.target_character_ids?.length ? post.target_character_ids : post.target_character_id ? [post.target_character_id] : []);
+                              setEditCategories(post.categories || []);
+                              setEditContent(post.content.replace(SIGNATURE, '').trim());
+                              setEditPostImage(null);
+                            }} className="shrink-0 rounded-lg border border-gold-500/30 px-3 py-2 text-xs text-gold-300">Modifier</button>
+                          </div>
+                          {editingPostId === post.id && (
+                            <form onSubmit={async (event) => {
+                              event.preventDefault();
+                              if (!editCategories.length) {
+                                setError('Sélectionne au moins une catégorie.');
+                                return;
+                              }
+                              setSending(true);
+                              setError('');
+                              try {
+                                let imageUrl = post.image_url;
+                                if (editPostImage) imageUrl = await uploadPublicImage(editPostImage, 'posts');
+                                const { error: updateError } = await supabase.from('scoop_posts').update({
+                                  post_type: editPostType,
+                                  target_character_id: editTargets[0] || null,
+                                  target_character_ids: editTargets,
+                                  categories: editCategories,
+                                  content: editContent.trim() + '\n\n' + SIGNATURE,
+                                  image_url: imageUrl,
+                                }).eq('id', post.id);
+                                if (updateError) throw updateError;
+                                setEditingPostId(null);
+                                await loadData();
+                                notify('Publication modifiée.');
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : 'Modification impossible.');
+                              } finally {
+                                setSending(false);
+                              }
+                            }} className="mt-3 space-y-3 border-t border-gold-500/10 pt-3">
+                              <div className="grid grid-cols-2 gap-2">
+                                <button type="button" onClick={() => setEditPostType('verified')} className={`rounded-lg border py-2 text-xs ${editPostType === 'verified' ? 'border-gold-400 text-gold-300' : 'border-white/10 text-bone-500'}`}>✦ Vérifié</button>
+                                <button type="button" onClick={() => setEditPostType('rumor')} className={`rounded-lg border py-2 text-xs ${editPostType === 'rumor' ? 'border-red-400 text-red-300' : 'border-white/10 text-bone-500'}`}>Rumeur</button>
+                              </div>
+                              <textarea value={editContent} onChange={(event) => setEditContent(event.target.value)} rows={5} required className="w-full rounded-lg border border-gold-500/30 bg-ink-950 p-3 text-sm text-bone-100" />
+                              <p className="text-xs text-gold-400">Personnages ciblés</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {characters.map((character) => <label key={character.id} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={editTargets.includes(character.id)} onChange={(event) => setEditTargets((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} />{character.first_name} {character.name}</label>)}
+                              </div>
+                              <p className="text-xs text-gold-400">Catégories</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {SCOOP_CATEGORIES.map((category) => <label key={category.id} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={editCategories.includes(category.id)} onChange={(event) => setEditCategories((current) => event.target.checked ? [...current, category.id] : current.filter((id) => id !== category.id))} />{category.label}</label>)}
+                              </div>
+                              <label className="block text-xs text-bone-400">Remplacer l'image (facultatif)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setEditPostImage(event.target.files?.[0] || null)} className="mt-2 block text-xs" /></label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button type="submit" disabled={sending} className="rounded-lg bg-gold-500 py-2 text-xs font-semibold text-ink-950">Enregistrer</button>
+                                <button type="button" onClick={() => setEditingPostId(null)} className="rounded-lg border border-white/15 py-2 text-xs text-bone-300">Annuler</button>
+                              </div>
+                            </form>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+                {posts.length === 0 && <p className="text-sm text-bone-500">Aucune publication archivée.</p>}
+              </div>
             </div>
 
             <div className="border-t border-gold-500/20 pt-5">
