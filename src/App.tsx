@@ -410,10 +410,10 @@ export default function App() {
     setUpdatingId(playerId);
     setPlayersError('');
 
-    const { error } = await supabase
-      .from('players')
-      .update({ registration_status: status })
-      .eq('id', playerId);
+    const { error } = await supabase.rpc('admin_set_player_status', {
+      p_player_id: playerId,
+      p_status: status,
+    });
 
     if (error) {
       console.error(error);
@@ -426,6 +426,16 @@ export default function App() {
             : player
         )
       );
+
+      if (status === 'rejected') {
+        setCharacters((current) =>
+          current.filter((character) => character.player_id !== playerId)
+        );
+
+        if (form.player_id === playerId) {
+          resetCharacterForm();
+        }
+      }
     }
 
     setUpdatingId(null);
@@ -626,10 +636,9 @@ export default function App() {
     setCharacterError('');
     setCharacterMessage('');
 
-    const { error } = await supabase
-      .from('characters')
-      .delete()
-      .eq('id', characterId);
+    const { error } = await supabase.rpc('admin_delete_character', {
+      p_character_id: characterId,
+    });
 
     if (error) {
       console.error(error);
