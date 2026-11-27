@@ -641,8 +641,10 @@ export default function App() {
     });
 
     if (error) {
-      console.error(error);
-      setCharacterError('Impossible de supprimer ce personnage.');
+      console.error('Erreur de suppression du personnage :', error);
+      setCharacterError(
+        `Suppression impossible : ${error.message || 'erreur inconnue'}`
+      );
       return;
     }
 
@@ -674,8 +676,10 @@ export default function App() {
     (player) => player.registration_status === 'pending'
   );
 
+  // Les comptes refusés sont conservés en base pour mémoriser le refus,
+  // mais ne doivent plus apparaître dans les comptes actifs de l'administration.
   const otherPlayers = players.filter(
-    (player) => player.registration_status !== 'pending'
+    (player) => player.registration_status === 'approved'
   );
 
   const statusLabel = (status: RegistrationStatus) => {
@@ -690,6 +694,7 @@ export default function App() {
   };
 
   const characterGroups = players
+    .filter((player) => player.registration_status === 'approved')
     .map((player) => ({
       player,
       characters: characters.filter((character) => character.player_id === player.id),
@@ -968,7 +973,7 @@ export default function App() {
             )}
 
             <h2 className="mt-12 text-xl font-semibold text-bone-100">
-              Autres comptes ({otherPlayers.length})
+              Joueurs acceptés ({otherPlayers.length})
             </h2>
 
             <div className="mt-5 space-y-3">
